@@ -84,13 +84,15 @@ func NewHTTPStaticServer(root string) *HTTPStaticServer {
 		}
 	}()
 
+	// 暂不支持ipa和apk扫码安装
 	// routers for Apple *.ipa
-	m.HandleFunc("/-/ipa/plist/{path:.*}", s.hPlist)
-	m.HandleFunc("/-/ipa/link/{path:.*}", s.hIpaLink)
+	// m.HandleFunc("/-/ipa/plist/{path:.*}", s.hPlist)
+	// m.HandleFunc("/-/ipa/link/{path:.*}", s.hIpaLink)
 
 	m.HandleFunc("/{path:.*}", s.hIndex).Methods("GET", "HEAD")
 	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("POST")
-	m.HandleFunc("/{path:.*}", s.hModify).Methods("PUT")
+	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("PUT")		// 与post一样，唯一区别是可以覆盖已存在的文件，从界面上传默认都为put
+	m.HandleFunc("/{path:.*}", s.hPatch).Methods("PATCH")
 	m.HandleFunc("/{path:.*}", s.hDelete).Methods("DELETE")
 	return s
 }
@@ -181,7 +183,7 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("Success"))
 }
 
-func (s *HTTPStaticServer) hModify(w http.ResponseWriter, req *http.Request) {
+func (s *HTTPStaticServer) hPatch(w http.ResponseWriter, req *http.Request) {
 	// not need to authenticate, oauth2-proxy will help authenticate
 	if req.FormValue("op") == "rename" {
 		s.hRename(w, req)
@@ -267,6 +269,21 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	}
 
 	dstPath := filepath.Join(dirpath, filename)
+	
+	// POST为非覆盖写
+	if strings.ToUpper(req.Method) == "POST" {
+		if IsExists(dstPath) {
+			w.WriteHeader(409)
+			w.Header().Set("Content-Type", "application/json;charset=utf-8")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":     false,
+				"description": "file already exists.",
+				"code":			409,
+			})
+			return
+		}
+	}
+
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
@@ -299,7 +316,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
-		"destination": dstPath,
+		"destination": filepath.Join(path, filename),
 	})
 }
 
@@ -367,7 +384,7 @@ func (s *HTTPStaticServer) hZip(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
 	auth := s.readAccessConf(path)
 	if !auth.canArchive(r) {
-		http.Error(w, "Archive forbidden", http.StatusForbidden)
+		http.Error(w, "Archive not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	CompressToZip(w, filepath.Join(s.Root, path))

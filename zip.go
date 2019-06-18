@@ -173,7 +173,9 @@ func unzipFile(filename, dest string) error {
 		}
 
 		os.MkdirAll(filepath.Dir(fpath), os.ModePerm)
-		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		outMode := f.Mode()
+		outMode = outMode & ^os.ModeSymlink
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, outMode)
 		if err != nil {
 			return err
 		}

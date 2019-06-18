@@ -126,16 +126,51 @@ var vm = new Vue({
       }.bind(this)
     })
     this.myDropzone = new Dropzone("#upload-form", {
+      method: 'put',
+      parallelUploads: 8,
       paramName: "file",
-      maxFilesize: 10240,
+      maxFilesize: 16384,
       addRemoveLinks: true,
       init: function () {
+        var prevBytesSent = {}  // file._instanceId -> bytes
+        this.on("sending", function (file) {
+          var nowMs = new Date().getTime()
+          file._instanceId = Math.random().toString()
+          file._startTs = nowMs
+
+          var $dzFilename = $(".dz-filename", file.previewElement)
+          $('<div class="ghs-dz-rate" style="font-size:12px;"></div>').insertAfter($dzFilename)
+          console.log(file)
+        })
         this.on("uploadprogress", function (file, progress) {
-          // console.log("File progress", progress);
+          var nowMs = new Date().getTime()
+          var bytesSent = file.upload.bytesSent
+          var prevSent = prevBytesSent[file._instanceId] || [0, 0]
+          var dBytes = bytesSent - prevSent[0]
+          var rate = dBytes / (nowMs - prevSent[1]) * 1000
+          prevBytesSent[file._instanceId] = [bytesSent, nowMs]
+          var displayRate = (rate / 1024 / 1024).toFixed(2) + " MB/s"
+
+          var $dzRate = $(".ghs-dz-rate", file.previewElement)
+          if ($dzRate.length > 0) {
+            $dzRate.text(displayRate)
+          }
+
+          // console.log("File progress", file, progress, displayRate);
         });
         this.on("complete", function (file) {
           console.log("reload file list")
           loadFileList()
+          delete prevBytesSent[file._instanceId]
+
+          // display avg rate
+          var $dzRate = $(".ghs-dz-rate", file.previewElement)
+          if ($dzRate.length > 0) {
+            var nowMs = new Date().getTime()
+            var rate = file.size / (nowMs - file._startTs) * 1000 / 1024 / 1024
+            var displayRate = "avg " + rate.toFixed(2) + " MB/s"
+            $dzRate.text(displayRate)
+          }
         })
       }
     });
@@ -265,7 +300,7 @@ var vm = new Vue({
       })
     },
     makeDirectory: function () {
-      var name = window.prompt("current path: " + location.pathname + "\nplease enter the new directory name", "")
+      var name = window.prompt("current path: " + decodeURI(location.pathname) + "\nplease enter a new directory name", "")
       console.log(name)
       if (!name) {
         return
@@ -275,7 +310,7 @@ var vm = new Vue({
         return
       }
       $.ajax({
-        url: pathJoin(["/", location.pathname, "/", name]),
+        url: pathJoin(["/", location.pathname, name]),
         method: "POST",
         success: function (res) {
           console.log(res)
@@ -287,7 +322,12 @@ var vm = new Vue({
       })
     },
     Rename: function (f) {
-        var name = window.prompt("please enter the new name.\nCaution:can not move to other directory", "")
+        var originFilename = pathJoin(["/", decodeURI(location.pathname), decodeURI(f.name)])
+        var renamePrompt = "Please enter a new name.\n"
+            + "Note: can not move to other directory\n"
+            + "Original filename: "
+            + decodeURI(f.name)
+        var name = window.prompt(renamePrompt, "")
         console.log(name)
         if (!name) {
             return
@@ -298,9 +338,9 @@ var vm = new Vue({
         }
         var data = $.extend({op: "rename", name: name}, location.search);
         $.ajax({
-            url: pathJoin(["/", location.pathname, "/", f.name]),
+            url: originFilename,
             data: data,
-            method: "PUT",
+            method: "PATCH",
             success: function (res) {
                 console.log(res)
                 loadFileList()
@@ -313,7 +353,7 @@ var vm = new Vue({
     deletePathConfirm: function (f, e) {
       e.preventDefault();
       if (!e.altKey) { // skip confirm when alt pressed
-        if (!window.confirm("Delete " + location.pathname + "/" + f.name + " ?")) {
+        if (!window.confirm("Delete " + decodeURI(location.pathname) + "/" + decodeURI(f.name) + " ?")) {
           return;
         }
       }
@@ -351,30 +391,6 @@ var vm = new Vue({
       return this.breadcrumb;
     },
 
-    // loadPreviewFile: function (filepath, e) {
-    //   if (e) {
-    //     e.preventDefault() // may be need a switch
-    //   }
-    //   var that = this;
-    //   $.getJSON(pathJoin(['/-/info', location.pathname]))
-    //     .then(function (res) {
-    //       console.log(res);
-    //       that.preview.filename = res.name;
-    //       that.preview.filesize = res.size;
-    //       return $.ajax({
-    //         url: '/' + res.path,
-    //         dataType: 'text',
-    //       });
-    //     })
-    //     .then(function (res) {
-    //       console.log(res)
-    //       that.preview.contentHTML = '<pre>' + res + '</pre>';
-    //       console.log("Finally")
-    //     })
-    //     .done(function (res) {
-    //       console.log("done", res)
-    //     });
-    // },
     loadAll: function () {
       // TODO: move loadFileList here
     },
@@ -425,10 +441,6 @@ function loadFileList(pathname) {
 
   }
 
-  // vm.previewMode = getQueryString("raw") == "false";
-  // if (vm.previewMode) {
-  //   vm.loadPreviewFile();
-  // }
   return retObj
 }
 
