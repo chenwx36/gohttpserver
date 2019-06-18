@@ -174,7 +174,7 @@ func unzipFile(filename, dest string) error {
 
 		os.MkdirAll(filepath.Dir(fpath), os.ModePerm)
 		outMode := f.Mode()
-		outMode = outMode & ^os.ModeSymlink
+		outMode = outMode & ^os.ModeSymlink  // 不让在本地文件系统创建symbolic link
 		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, outMode)
 		if err != nil {
 			return err
