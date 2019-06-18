@@ -248,11 +248,10 @@ var vm = new Vue({
     },
     showInfo: function (f) {
       console.log(f);
+      var data = $.extend({op: "info"}, location.search);
       $.ajax({
         url: pathJoin(["/", location.pathname, f.name]),
-        data: {
-          op: "info",
-        },
+        data: data,
         method: "GET",
         success: function (res) {
           $("#file-info-title").text(f.name);
@@ -286,6 +285,30 @@ var vm = new Vue({
           showErrorMessage(jqXHR)
         }
       })
+    },
+    Rename: function (f) {
+        var name = window.prompt("please enter the new name.\nCaution:can not move to other directory", "")
+        console.log(name)
+        if (!name) {
+            return
+        }
+        if(!checkPathNameLegal(name)) {
+            alert("Name should not contains any of \\/:*<>|")
+            return
+        }
+        var data = $.extend({op: "rename", name: name}, location.search);
+        $.ajax({
+            url: pathJoin(["/", location.pathname, "/", f.name]),
+            data: data,
+            method: "PUT",
+            success: function (res) {
+                console.log(res)
+                loadFileList()
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                showErrorMessage(jqXHR)
+            }
+        })
     },
     deletePathConfirm: function (f, e) {
       e.preventDefault();
@@ -327,30 +350,31 @@ var vm = new Vue({
       }
       return this.breadcrumb;
     },
-    loadPreviewFile: function (filepath, e) {
-      if (e) {
-        e.preventDefault() // may be need a switch
-      }
-      var that = this;
-      $.getJSON(pathJoin(['/-/info', location.pathname]))
-        .then(function (res) {
-          console.log(res);
-          that.preview.filename = res.name;
-          that.preview.filesize = res.size;
-          return $.ajax({
-            url: '/' + res.path,
-            dataType: 'text',
-          });
-        })
-        .then(function (res) {
-          console.log(res)
-          that.preview.contentHTML = '<pre>' + res + '</pre>';
-          console.log("Finally")
-        })
-        .done(function (res) {
-          console.log("done", res)
-        });
-    },
+
+    // loadPreviewFile: function (filepath, e) {
+    //   if (e) {
+    //     e.preventDefault() // may be need a switch
+    //   }
+    //   var that = this;
+    //   $.getJSON(pathJoin(['/-/info', location.pathname]))
+    //     .then(function (res) {
+    //       console.log(res);
+    //       that.preview.filename = res.name;
+    //       that.preview.filesize = res.size;
+    //       return $.ajax({
+    //         url: '/' + res.path,
+    //         dataType: 'text',
+    //       });
+    //     })
+    //     .then(function (res) {
+    //       console.log(res)
+    //       that.preview.contentHTML = '<pre>' + res + '</pre>';
+    //       console.log("Finally")
+    //     })
+    //     .done(function (res) {
+    //       console.log("done", res)
+    //     });
+    // },
     loadAll: function () {
       // TODO: move loadFileList here
     },
@@ -401,10 +425,10 @@ function loadFileList(pathname) {
 
   }
 
-  vm.previewMode = getQueryString("raw") == "false";
-  if (vm.previewMode) {
-    vm.loadPreviewFile();
-  }
+  // vm.previewMode = getQueryString("raw") == "false";
+  // if (vm.previewMode) {
+  //   vm.loadPreviewFile();
+  // }
   return retObj
 }
 

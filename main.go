@@ -40,6 +40,7 @@ type Configure struct {
 	Title           string   `yaml:"title"`
 	Debug           bool     `yaml:"debug"`
 	GoogleTrackerID string   `yaml:"google-tracker-id"`
+	DisableArchive  bool     `yaml:"archive"`
 	Auth            struct {
 		Type   string `yaml:"type"` // openid|http|github
 		OpenID string `yaml:"openid"`
@@ -112,6 +113,7 @@ func parseFlags() error {
 	kingpin.Flag("theme", "web theme, one of <black|green>").StringVar(&gcfg.Theme)
 	kingpin.Flag("upload", "enable upload support").BoolVar(&gcfg.Upload)
 	kingpin.Flag("delete", "enable delete support").BoolVar(&gcfg.Delete)
+	kingpin.Flag("disable-archive-zip", "enable archive support").BoolVar(&gcfg.DisableArchive)
 	kingpin.Flag("xheaders", "used when behide nginx").BoolVar(&gcfg.XHeaders)
 	kingpin.Flag("cors", "enable cross-site HTTP request").BoolVar(&gcfg.Cors)
 	kingpin.Flag("debug", "enable debug mode").BoolVar(&gcfg.Debug)
@@ -150,6 +152,7 @@ func main() {
 	ss.GoogleTrackerID = gcfg.GoogleTrackerID
 	ss.Upload = gcfg.Upload
 	ss.Delete = gcfg.Delete
+	ss.Archive = !gcfg.DisableArchive
 	ss.AuthType = gcfg.Auth.Type
 
 	if gcfg.PlistProxy != "" {

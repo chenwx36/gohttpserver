@@ -1,2 +1,3 @@
-upload: true
+upload: false
 delete: false
+archive: false

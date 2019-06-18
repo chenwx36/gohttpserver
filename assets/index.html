@@ -141,7 +141,7 @@
             <td class="hidden-xs">{{formatTime(f.mtime)}}</td>
             <td style="text-align: left">
               <template v-if="f.type == 'dir'">
-                <a class="btn btn-default btn-xs" href="/{{f.path}}/?op=archive">
+                <a v-show="auth.archive" class="btn btn-default btn-xs" href="/{{f.path}}/?op=archive">
                   <span class="hidden-xs">Archive</span> Zip
                   <span class="glyphicon glyphicon-download-alt"></span>
                 </a>
@@ -150,6 +150,9 @@
                 </button>
                 <button class="btn btn-default btn-xs" v-if="auth.delete" v-on:click="deletePathConfirm(f, $event)">
                   <span style="color:#CC3300" class="glyphicon glyphicon-trash"></span>
+                </button>
+                <button class="btn btn-default btn-xs" v-on:click="Rename(f)">
+                  <span class="hidden-xs">Rename</span>
                 </button>
               </template>
               <template v-if="f.type == 'file'">
@@ -173,6 +176,9 @@
                 </a>
                 <button class="btn btn-default btn-xs" v-if="auth.delete" v-on:click="deletePathConfirm(f, $event)">
                   <span style="color:#CC3300" class="glyphicon glyphicon-trash"></span>
+                </button>
+                <button class="btn btn-default btn-xs" v-on:click="Rename(f)">
+                    <span class="hidden-xs">Rename</span>
                 </button>
               </template>
             </td>
@@ -230,7 +236,7 @@
               <form action="#" class="dropzone" id="upload-form"></form>
             </div>
             <div class="modal-footer">
-              <button type="button" class="btn btn-default" @click="removeAllUploads">RemoveAll</button>
+              <button type="button" class="btn btn-default" @click="removeAllUploads">ClearAll</button>
               <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
             </div>
           </div>

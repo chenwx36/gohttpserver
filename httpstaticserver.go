@@ -45,6 +45,7 @@ type HTTPStaticServer struct {
 	Root            string
 	Upload          bool
 	Delete          bool
+	Archive         bool
 	Title           string
 	Theme           string
 	PlistProxy      string
@@ -89,6 +90,7 @@ func NewHTTPStaticServer(root string) *HTTPStaticServer {
 
 	m.HandleFunc("/{path:.*}", s.hIndex).Methods("GET", "HEAD")
 	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("POST")
+	m.HandleFunc("/{path:.*}", s.hModify).Methods("PUT")
 	m.HandleFunc("/{path:.*}", s.hDelete).Methods("DELETE")
 	return s
 }
@@ -158,7 +160,7 @@ func (s *HTTPStaticServer) hMkdir(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
-	// only can delete file now
+	// can delete file and directory
 	path := mux.Vars(req)["path"]
 	auth := s.readAccessConf(path)
 	if !auth.canDelete(req) {
@@ -166,11 +168,47 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err := os.Remove(filepath.Join(s.Root, path))
+	err := os.RemoveAll(filepath.Join(s.Root, path))
 	if err != nil {
 		pathErr, ok := err.(*os.PathError)
 		if ok{
 			http.Error(w, pathErr.Op + " " + path + ": " + pathErr.Err.Error(), 500)
+		} else {
+			http.Error(w, err.Error(), 500)
+		}
+		return
+	}
+	w.Write([]byte("Success"))
+}
+
+func (s *HTTPStaticServer) hModify(w http.ResponseWriter, req *http.Request) {
+	// not need to authenticate, oauth2-proxy will help authenticate
+	if req.FormValue("op") == "rename" {
+		s.hRename(w, req)
+		return
+	}
+	http.Error(w, "op value is not legal", http.StatusBadRequest)
+}
+
+func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
+	// not need to authenticate, oauth2-proxy will help authenticate
+	path := mux.Vars(req)["path"]
+	filename := req.FormValue("name")
+	if err := checkFilename(filename); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dir := filepath.Dir(path)
+	fpath := filepath.Join(dir, filename)
+	if IsExists(filepath.Join(s.Root, fpath)) {
+		http.Error(w, "name conflict with exist file or directory", http.StatusBadRequest)
+		return
+	}
+	err := os.Rename(filepath.Join(s.Root, path), filepath.Join(s.Root, fpath))
+	if err != nil {
+		linkErr, ok := err.(*os.LinkError)
+		if ok{
+			http.Error(w, linkErr.Op + " " + path + ": " + linkErr.Err.Error(), 500)
 		} else {
 			http.Error(w, err.Error(), 500)
 		}
@@ -327,6 +365,11 @@ func (s *HTTPStaticServer) hInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPStaticServer) hZip(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	auth := s.readAccessConf(path)
+	if !auth.canArchive(r) {
+		http.Error(w, "Archive forbidden", http.StatusForbidden)
+		return
+	}
 	CompressToZip(w, filepath.Join(s.Root, path))
 }
 
@@ -467,6 +510,7 @@ type UserControl struct {
 type AccessConf struct {
 	Upload       bool          `yaml:"upload" json:"upload"`
 	Delete       bool          `yaml:"delete" json:"delete"`
+	Archive      bool		   `yaml:"archive" json:"archive"`
 	Users        []UserControl `yaml:"users" json:"users"`
 	AccessTables []AccessTable `yaml:"accessTables"`
 }
@@ -507,6 +551,10 @@ func (c *AccessConf) canDelete(r *http.Request) bool {
 		}
 	}
 	return c.Delete
+}
+
+func (c *AccessConf) canArchive(r *http.Request) bool {
+	return c.Archive
 }
 
 func (c *AccessConf) canUploadByToken(token string) bool {
@@ -680,10 +728,16 @@ func (s *HTTPStaticServer) defaultAccessConf() AccessConf {
 	return AccessConf{
 		Upload: s.Upload,
 		Delete: s.Delete,
+		Archive: s.Archive,
 	}
 }
 
 func (s *HTTPStaticServer) readAccessConf(requestPath string) (ac AccessConf) {
+	if s.AuthType == "oauth2-proxy" {
+		ac = s.defaultAccessConf()
+		return
+	}
+
 	requestPath = filepath.Clean(requestPath)
 	if requestPath == "/" || requestPath == "" || requestPath == "." {
 		ac = s.defaultAccessConf()
@@ -797,8 +851,19 @@ func renderHTML(w http.ResponseWriter, name string, v interface{}) {
 }
 
 func checkFilename(name string) error {
-	if strings.ContainsAny(name, "\\/:*<>|") {
-		return errors.New("Name should not contains \\/:*<>|")
+	if name == "" || strings.ContainsAny(name, "\\/:*<>|") {
+		return errors.New("Name should not be empty or contains \\/:*<>|")
 	}
 	return nil
+}
+
+func IsExists(path string) bool {
+	_, err := os.Stat(path)    //os.Stat获取文件信息
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
 }
