@@ -219,6 +219,7 @@ func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("Success"))
 }
 
+
 func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Request) {
 	path := mux.Vars(req)["path"]
 	dirpath := filepath.Join(s.Root, path)
@@ -230,8 +231,36 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	file, header, err := req.FormFile("file")
+	// 1. read filename
+	filename := req.FormValue("filename")
+	if filename == "" {
+		// 內建的http库有问题，无论什么时候读取FormFile，
+		// 总是要到完整接收完了body才进入到这个hUploadOrMkdir
+		// 因此需要读取文件名的话也得等整个文件上传完
+		// 之后要换一个新的库来实现这个上传逻辑
+		_, header, _ := req.FormFile("file")  
+		filename = header.Filename
+	}
+	if err := checkFilename(filename); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
+	dstPath := filepath.Join(dirpath, filename)
+	
+	// POST为非覆盖写
+	if strings.ToUpper(req.Method) == "POST" && IsExists(dstPath) {
+		w.WriteHeader(409)
+		w.Header().Set("Content-Type", "application/json;charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     false,
+			"description": "file already exists.",
+			"code":			409,
+		})
+		return
+	}
+
+	// mkdir
 	if _, err := os.Stat(dirpath); os.IsNotExist(err) {
 		if err := os.MkdirAll(dirpath, os.ModePerm); err != nil {
 			log.Println("Create directory:", err)
@@ -240,7 +269,10 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		}
 	}
 
-	if file == nil { // only mkdir
+	// 2. read file body
+	file, _, err := req.FormFile("file")
+
+	if file == nil {
 		w.Header().Set("Content-Type", "application/json;charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     true,
@@ -259,31 +291,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		req.MultipartForm.RemoveAll() // Seen from go source code, req.MultipartForm not nil after call FormFile(..)
 	}()
 
-	filename := req.FormValue("filename")
-	if filename == "" {
-		filename = header.Filename
-	}
-	if err := checkFilename(filename); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	dstPath := filepath.Join(dirpath, filename)
-	
-	// POST为非覆盖写
-	if strings.ToUpper(req.Method) == "POST" {
-		if IsExists(dstPath) {
-			w.WriteHeader(409)
-			w.Header().Set("Content-Type", "application/json;charset=utf-8")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     false,
-				"description": "file already exists.",
-				"code":			409,
-			})
-			return
-		}
-	}
-
+	// 3. write file to disk
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
@@ -299,6 +307,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 
+	// 4. unzip if neccessary
 	if req.FormValue("unzip") == "true" {
 		err = unzipFile(dstPath, dirpath)
 		dst.Close()
