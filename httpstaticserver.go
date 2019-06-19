@@ -238,12 +238,16 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		// 总是要到完整接收完了body才进入到这个hUploadOrMkdir
 		// 因此需要读取文件名的话也得等整个文件上传完
 		// 之后要换一个新的库来实现这个上传逻辑
-		_, header, _ := req.FormFile("file")  
-		filename = header.Filename
+		_, header, _ := req.FormFile("file")
+		if header != nil { 
+			filename = header.Filename
+		}
 	}
-	if err := checkFilename(filename); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
+	if filename != "" {
+		if err := checkFilename(filename); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 
 	dstPath := filepath.Join(dirpath, filename)
