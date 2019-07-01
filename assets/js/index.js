@@ -32,7 +32,7 @@ function showErrorMessage(jqXHR) {
   if (errMsg == null) {
       errMsg = jqXHR.responseText
   }
-  alert(String(jqXHR.status).concat(":", errMsg));
+  alert(String(jqXHR.status).concat(": ", errMsg));
   console.error(errMsg)
 }
 
@@ -269,23 +269,27 @@ var vm = new Vue({
       return "fa-file-text-o"
     },
     clickFileOrDir: function (f, e) {
-      // TODO: fix here tomorrow
+      // f.name可能是压缩目录的形式如 a/b/c，
+      // 所以需要对f.name先split('/')了再encodeURIComponent
+      var fName = f.name.split('/').map(encodeURIComponent).join('/')
+      var reqPath = pathJoin([location.pathname, fName]);
       if (f.type == "file") {
+        location.href = reqPath;
         return true;
       }
-      var reqPath = pathJoin([location.pathname, f.name]);
       loadFileOrDir(reqPath);
       e.preventDefault()
     },
     changePath: function (reqPath, e) {
+      // breadcrumb上的快速path navi
+      reqPath = reqPath.split('/').map(encodeURIComponent).join('/')
       loadFileOrDir(reqPath);
       e.preventDefault()
     },
     showInfo: function (f) {
-      console.log(f);
       var data = $.extend({op: "info"}, location.search);
       $.ajax({
-        url: pathJoin(["/", location.pathname, f.name]),
+        url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
         data: data,
         method: "GET",
         success: function (res) {
@@ -310,7 +314,7 @@ var vm = new Vue({
         return
       }
       $.ajax({
-        url: pathJoin(["/", location.pathname, name]),
+        url: pathJoin(["/", location.pathname, encodeURIComponent(name)]),
         method: "POST",
         success: function (res) {
           console.log(res)
@@ -322,11 +326,10 @@ var vm = new Vue({
       })
     },
     Rename: function (f) {
-        var originFilename = pathJoin(["/", decodeURI(location.pathname), decodeURI(f.name)])
         var renamePrompt = "Please enter a new name.\n"
             + "Note: can not move to other directory\n"
             + "Original filename: "
-            + decodeURI(f.name)
+            + f.name.split('/').pop()
         var name = window.prompt(renamePrompt, "")
         console.log(name)
         if (!name) {
@@ -338,7 +341,7 @@ var vm = new Vue({
         }
         var data = $.extend({op: "rename", name: name}, location.search);
         $.ajax({
-            url: originFilename,
+            url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
             data: data,
             method: "PATCH",
             success: function (res) {
@@ -351,14 +354,14 @@ var vm = new Vue({
         })
     },
     deletePathConfirm: function (f, e) {
+      console.log(f)
       e.preventDefault();
-      if (!e.altKey) { // skip confirm when alt pressed
-        if (!window.confirm("Delete " + decodeURI(location.pathname) + "/" + decodeURI(f.name) + " ?")) {
-          return;
-        }
+      if (!window.confirm('Delete "/' + f.path.replace(/\\/g, '/') + '" ?')) {
+        return;
       }
+      
       $.ajax({
-        url: pathJoin([location.pathname, f.name]),
+        url: pathJoin([location.pathname, encodeURIComponent(f.name)]),
         method: 'DELETE',
         success: function (res) {
           loadFileList()
@@ -369,9 +372,10 @@ var vm = new Vue({
       });
     },
     updateBreadcrumb: function (pathname) {
-      var pathname = decodeURI(pathname || location.pathname || "/");
+      var pathname = pathname || location.pathname || "/";
       pathname = pathname.split('?')[0]
       var parts = pathname.split('/');
+      parts = parts.map(function (p) { return decodeURIComponent(p) })
       this.breadcrumb = [];
       if (pathname == "/") {
         return this.breadcrumb;

@@ -170,6 +170,11 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if path == "/" || path == "" {
+		http.Error(w, "Unable to delete bucket root.", http.StatusForbidden)
+		return
+	}
+
 	err := os.RemoveAll(filepath.Join(s.Root, path))
 	if err != nil {
 		pathErr, ok := err.(*os.PathError)
@@ -203,7 +208,7 @@ func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 	dir := filepath.Dir(path)
 	fpath := filepath.Join(dir, filename)
 	if IsExists(filepath.Join(s.Root, fpath)) {
-		http.Error(w, "name conflict with exist file or directory", http.StatusBadRequest)
+		http.Error(w, "name conflict with exist file or directory", http.StatusConflict)
 		return
 	}
 	err := os.Rename(filepath.Join(s.Root, path), filepath.Join(s.Root, fpath))

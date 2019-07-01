@@ -87,7 +87,7 @@
           <a v-on:click='changePath("/", $event)' href="/"><i class="fa fa-home"></i></a>
         </li>
         <li v-for="bc in breadcrumb.slice(0, breadcrumb.length-1)">
-          <a v-on:click='changePath(bc.path, $event)' href="{{bc.path}}">{{bc.name}}</a>
+          <a v-on:click='changePath(bc.path, $event)' href="#">{{bc.name}}</a>
         </li>
         <li v-if="breadcrumb.length >= 1">
           {{breadcrumb.slice(-1)[0].name}}
@@ -128,7 +128,7 @@
         <tbody>
           <tr v-for="f in computedFiles">
             <td>
-              <a v-on:click='clickFileOrDir(f, $event)' href="/{{f.path + (f.type == 'dir' ? '' : '')}}">
+              <a v-on:click='clickFileOrDir(f, $event)' href="#">
                 <!-- ?raw=false -->
                 <i style="padding-right: 0.5em" class="fa" v-bind:class='genFileClass(f)'></i> {{f.name}}
               </a>
