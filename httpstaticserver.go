@@ -140,27 +140,6 @@ func (s *HTTPStaticServer) hIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *HTTPStaticServer) hMkdir(w http.ResponseWriter, req *http.Request) {
-	path := filepath.Dir(mux.Vars(req)["path"])
-	auth := s.readAccessConf(path)
-	if !auth.canDelete(req) {
-		http.Error(w, "Mkdir forbidden", http.StatusForbidden)
-		return
-	}
-
-	name := filepath.Base(mux.Vars(req)["path"])
-	if err := checkFilename(name); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-	err := os.Mkdir(filepath.Join(s.Root, path, name), 0755)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	w.Write([]byte("Success"))
-}
-
 func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 	// can delete file and directory
 	path := mux.Vars(req)["path"]
@@ -170,6 +149,7 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// 不允许直接删掉整个根目录
 	if path == "/" || path == "" {
 		http.Error(w, "Unable to delete bucket root.", http.StatusForbidden)
 		return
@@ -179,9 +159,9 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		pathErr, ok := err.(*os.PathError)
 		if ok{
-			http.Error(w, pathErr.Op + " " + path + ": " + pathErr.Err.Error(), 500)
+			http.Error(w, pathErr.Op + " " + path + ": " + pathErr.Err.Error(), http.StatusInternalServerError)
 		} else {
-			http.Error(w, err.Error(), 500)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -214,10 +194,10 @@ func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 	err := os.Rename(filepath.Join(s.Root, path), filepath.Join(s.Root, fpath))
 	if err != nil {
 		linkErr, ok := err.(*os.LinkError)
-		if ok{
-			http.Error(w, linkErr.Op + " " + path + ": " + linkErr.Err.Error(), 500)
+		if ok {
+			http.Error(w, linkErr.Op + " " + path + ": " + linkErr.Err.Error(), http.StatusConflict)
 		} else {
-			http.Error(w, err.Error(), 500)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -227,7 +207,9 @@ func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 
 func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Request) {
 	path := mux.Vars(req)["path"]
-	dirpath := filepath.Join(s.Root, path)
+	filename := filepath.Base(path)  			// 文件名，会自动忽略掉结尾的"/"
+	dirname := filepath.Dir(path)    			// request path中的的directory name
+	dirpath := filepath.Join(s.Root, dirname) 	// 实际存储系统中的存储目录
 
 	// check auth
 	auth := s.readAccessConf(path)
@@ -236,18 +218,8 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// 1. read filename
-	filename := req.FormValue("filename")
-	if filename == "" {
-		// 內建的http库有问题，无论什么时候读取FormFile，
-		// 总是要到完整接收完了body才进入到这个hUploadOrMkdir
-		// 因此需要读取文件名的话也得等整个文件上传完
-		// 之后要换一个新的库来实现这个上传逻辑
-		_, header, _ := req.FormFile("file")
-		if header != nil { 
-			filename = header.Filename
-		}
-	}
+	// 1. check filename
+	log.Println(filename)
 	if filename != "" {
 		if err := checkFilename(filename); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
@@ -255,33 +227,47 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		}
 	}
 
-	dstPath := filepath.Join(dirpath, filename)
-	
+	dstPath := filepath.Join(dirpath, filename)	// 最终存在文件系统里的文件完整路径
+
 	// POST为非覆盖写
 	if strings.ToUpper(req.Method) == "POST" && IsExists(dstPath) {
-		w.WriteHeader(409)
+		w.WriteHeader(http.StatusConflict)
 		w.Header().Set("Content-Type", "application/json;charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     false,
 			"description": "file already exists.",
-			"code":			409,
+			"code":			http.StatusConflict,
 		})
 		return
 	}
 
+	// read file body
+	file, _, err := req.FormFile("file")
+	if file == nil {
+		// 没有文件的话则表示新建文件夹，
+		// request path就是目标文件夹
+		dirpath = filepath.Join(s.Root, path)
+	}
+
 	// mkdir
-	if _, err := os.Stat(dirpath); os.IsNotExist(err) {
+	if !IsExists(dirpath) {
 		if err := os.MkdirAll(dirpath, os.ModePerm); err != nil {
 			log.Println("Create directory:", err)
-			http.Error(w, "Directory create "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Cannot create directory. " + err.Error(), http.StatusConflict)
+			return
+		}
+	} else {
+		// `dirpath` exists and `dirpath` is a file
+		dirFi, err := os.Stat(dirpath)
+		if err == nil && !dirFi.IsDir() {
+			http.Error(w, "Cannot create directory. Target directory is a file.", http.StatusConflict)
 			return
 		}
 	}
 
-	// 2. read file body
-	file, _, err := req.FormFile("file")
-
 	if file == nil {
+		// body里没有文件的话，新建完文件夹就可以直接返回了
+		// 这部分跟s3无关，仅filesystem的特性
 		w.Header().Set("Content-Type", "application/json;charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     true,
@@ -292,7 +278,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 
 	if err != nil {
 		log.Println("Parse form file:", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer func() {
@@ -304,13 +290,13 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
-		http.Error(w, "File create "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
 	defer dst.Close()
 	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 
@@ -372,7 +358,7 @@ func (s *HTTPStaticServer) hInfo(w http.ResponseWriter, r *http.Request) {
 
 	fi, err := os.Stat(relPath)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	fji := &FileJSONInfo{
@@ -417,7 +403,7 @@ func (s *HTTPStaticServer) hUnzip(w http.ResponseWriter, r *http.Request) {
 	}
 	err := ExtractFromZip(filepath.Join(s.Root, zipPath), path, w)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
@@ -886,8 +872,14 @@ func renderHTML(w http.ResponseWriter, name string, v interface{}) {
 }
 
 func checkFilename(name string) error {
-	if name == "" || strings.ContainsAny(name, "\\/:*<>|") {
-		return errors.New("Name should not be empty or contains \\/:*<>|")
+	if name == "" {
+		return errors.New("Invalid empty filename")
+	}
+	if name == "." || name == ".." {
+		return errors.New("Name can not be \".\" or \"..\". Perhaps you are missing filename in request path.")
+	}
+	if strings.ContainsAny(name, "\\/") {
+		return errors.New("Name should not be empty or contains \\/")
 	}
 	return nil
 }

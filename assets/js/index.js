@@ -22,7 +22,7 @@ function getQueryString(name) {
 }
 
 function checkPathNameLegal(name) {
-  var reg = new RegExp("[\\/:*<>|]");
+  var reg = new RegExp("[\\/]");
   var r = name.match(reg)
   return r == null;
 }
@@ -133,6 +133,13 @@ var vm = new Vue({
       addRemoveLinks: true,
       init: function () {
         var prevBytesSent = {}  // file._instanceId -> bytes
+        this.on("addedfiles", function (filelist) {
+          // 设置要上传的文件的url为path + file.name
+          ;(this.options.url = function (f) {
+            var filename = f[0].name
+            return pathJoin([location.pathname, encodeURIComponent(filename)])
+          }).bind(this)
+        })
         this.on("sending", function (file) {
           var nowMs = new Date().getTime()
           file._instanceId = Math.random().toString()
@@ -310,7 +317,7 @@ var vm = new Vue({
         return
       }
       if(!checkPathNameLegal(name)) {
-        alert("Name should not contains any of \\/:*<>|")
+        alert("Name should not contains any of \\/")
         return
       }
       $.ajax({
@@ -336,7 +343,7 @@ var vm = new Vue({
             return
         }
         if(!checkPathNameLegal(name)) {
-            alert("Name should not contains any of \\/:*<>|")
+            alert("Name should not contains any of \\/")
             return
         }
         var data = $.extend({op: "rename", name: name}, location.search);
