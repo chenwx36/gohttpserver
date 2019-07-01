@@ -311,7 +311,7 @@ var vm = new Vue({
       })
     },
     makeDirectory: function () {
-      var name = window.prompt("current path: " + decodeURI(location.pathname) + "\nplease enter a new directory name", "")
+      var name = window.prompt("current path: " + decodeURIComponent(location.pathname) + "\nplease enter a new directory name", "")
       console.log(name)
       if (!name) {
         return
