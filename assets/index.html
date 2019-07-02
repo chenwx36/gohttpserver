@@ -131,7 +131,10 @@
               <a v-on:click='clickFileOrDir(f, $event)' href="#">
                 <!-- ?raw=false -->
                 <i style="padding-right: 0.5em" class="fa" v-bind:class='genFileClass(f)'></i> 
-                <span style="white-space: pre; font-family: consolas, monospace;">{{f.name}}</span>
+                <span style="font-family: consolas, monospace;">
+                  <span v-if="f.name.endsWith(' ')" style="white-space: pre; background-clip: #eee">{{f.name}}</span>
+                  <span v-if="!f.name.endsWith(' ')" style="white-space: pre;">{{f.name}}</span>
+                </span>
               </a>
               <!-- for search -->
               <button v-show="f.type == 'file' && f.name.indexOf('/') >= 0" class="btn btn-default btn-xs" @click="changeParentDirectory(f.path)">
