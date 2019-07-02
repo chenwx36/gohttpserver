@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"math/rand"
 
 	"regexp"
 
@@ -141,6 +142,17 @@ func (s *HTTPStaticServer) hIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
+	if err := req.ParseForm(); err != nil {
+		http.Error(w, "Fail parsing form data from request. " + err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// s3 multipart uploads handlers
+	if uploadId, uploadIdExits := req.Form["uploadId"]; uploadIdExits {
+		s.hS3AbortMultipartUploads(w, req, uploadId[0])
+		return
+	}
+
 	// can delete file and directory
 	path := mux.Vars(req)["path"]
 	auth := s.readAccessConf(path)
@@ -150,17 +162,12 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// 不允许直接删掉整个根目录
-	if path == "/" || path == "" {
+	if path == "/" || path == "" || path == "." {
 		http.Error(w, "Unable to delete bucket root.", http.StatusForbidden)
 		return
 	}
 
 	dst := filepath.Join(s.Root, path)
-	if !IsExists(dst) {
-		http.Error(w, "No such file or directory.", http.StatusNotFound)
-		return
-	}
-
 	err := os.RemoveAll(dst)
 	if err != nil {
 		pathErr, ok := err.(*os.PathError)
@@ -172,7 +179,6 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	w.Write([]byte("Success"))
 }
 
 func (s *HTTPStaticServer) hPatch(w http.ResponseWriter, req *http.Request) {
@@ -211,6 +217,187 @@ func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("Success"))
 }
 
+func (s *HTTPStaticServer) hS3InitiateMultipartUploads(w http.ResponseWriter, req *http.Request) {
+	log.Println("handling s3 initiate multipart uploads")
+
+	respInitiateMultipartUploadResultTpl := `
+		<?xml version="1.0" encoding="UTF-8"?>
+		<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+			<Bucket>%s</Bucket>
+			<Key>%s</Key>
+			<UploadId>%s</UploadId>
+		</InitiateMultipartUploadResult>
+	`
+
+	bucket := strings.Split(req.Host, ".")[0]
+	key := strings.TrimLeft(req.URL.Path, "/")
+	uploadId := fmt.Sprintf("%06d", rand.Intn(999999))
+	resp := fmt.Sprintf(respInitiateMultipartUploadResultTpl, bucket, key, uploadId)
+	resp = strings.TrimSpace(resp)
+
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(resp))
+}
+
+func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Request, partNumber, uploadId string) {
+	log.Println("handling s3 upload part")
+
+	if _, err := strconv.Atoi(partNumber); err != nil || partNumber == "" || uploadId == "" {
+		http.Error(w, "Invalid `partNumber` or `uploadId`.", http.StatusBadRequest)
+		return
+	}
+
+	path := mux.Vars(req)["path"]
+	filename := filepath.Base(path)
+	dirname := filepath.Dir(path)
+	dirpath := filepath.Join(s.Root, dirname)
+	partedFilename := fmt.Sprintf(".%s-%s.part-%s", filename, uploadId, partNumber)
+	
+	if !IsExists(dirpath) {
+		if err := os.MkdirAll(dirpath, os.ModePerm); err != nil {
+			log.Println("Create directory:", err)
+			http.Error(w, "Cannot create directory. " + err.Error(), http.StatusConflict)
+			return
+		}
+	}
+
+	file := req.Body
+	if file == nil {
+		http.Error(w, "Empty parted upload body.", http.StatusBadRequest)
+		return
+	}
+
+	dstPath := filepath.Join(dirpath, partedFilename)
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		log.Println("Create file:", err)
+		http.Error(w, "File create " + err.Error(), http.StatusConflict)
+		return
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, file); err != nil {
+		log.Println("Handle upload file:", err)
+		log.Printf("%v %v\n", dstPath, req.Header.Get("Content-Length"))
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	dummyEtag := fmt.Sprintf("\"dummy-etag-%06d\"", rand.Intn(999999))
+
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("ETag", dummyEtag)
+	w.WriteHeader(http.StatusOK)  // Set完所有headers后才能调用WriteHeader
+}
+
+func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, req *http.Request, uploadId string) {
+	log.Println("handling s3 complete multipart upload")
+
+	if uploadId == "" {
+		http.Error(w, "Invalid empty `uploadId`.", http.StatusBadRequest)
+		return
+	}
+
+	path := mux.Vars(req)["path"]
+	filename := filepath.Base(path)
+	dirname := filepath.Dir(path)
+	dirpath := filepath.Join(s.Root, dirname)
+	partedFilenames := fmt.Sprintf(".%s-%s.part-*", filename, uploadId)
+
+	matches, err := filepath.Glob(filepath.Join(dirpath, partedFilenames))
+	if err != nil {
+		http.Error(w, "Invalid multipart upload parts. " + err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	dstPath := filepath.Join(dirpath, filename)
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		log.Println("Create file:", err)
+		http.Error(w, "File create " + err.Error(), http.StatusConflict)
+		return
+	}
+	defer dst.Close()
+
+	// 逐个part文件合并
+	for i := 1; i <= len(matches); i += 1 {
+		srcFilename := fmt.Sprintf(".%s-%s.part-%d", filename, uploadId, i)
+		srcPath := filepath.Join(dirpath, srcFilename)
+		src, err := os.Open(srcPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := io.Copy(dst, src); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		defer func() {
+			if src != nil {
+				src.Close()
+			}
+
+			// 删除parted files
+			os.Remove(srcPath)
+		}()
+	}
+
+	responseTpl := `
+		<?xml version="1.0" encoding="UTF-8"?>
+		<CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+			<Location>%s</Location>
+			<Bucket>%s</Bucket>
+			<Key>%s</Key>
+			<ETag>"dummy-etag"</ETag>
+		</CompleteMultipartUploadResult>
+	`
+	scheme := req.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "http"
+	}
+	bucket := strings.Split(req.Host, ".")[0]
+	key := strings.TrimLeft(req.URL.Path, "/")
+	location := fmt.Sprintf("%s://%s%s", scheme, req.Host, key)
+	resp := fmt.Sprintf(responseTpl, location, bucket, key)
+	resp = strings.TrimSpace(resp)
+
+	w.Header().Set("Connection", "close")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(resp))
+}
+
+func (s *HTTPStaticServer) hS3AbortMultipartUploads(w http.ResponseWriter, req *http.Request, uploadId string) {
+	log.Printf("handling s3 abort multipart upload")
+
+	if uploadId == "" {
+		http.Error(w, "Invalid empty `uploadId`.", http.StatusBadRequest)
+		return
+	}
+
+	path := mux.Vars(req)["path"]
+	filename := filepath.Base(path)
+	dirname := filepath.Dir(path)
+	dirpath := filepath.Join(s.Root, dirname)
+	partedFilenames := fmt.Sprintf(".%s-%s.part-*", filename, uploadId)
+
+	matches, err := filepath.Glob(filepath.Join(dirpath, partedFilenames))
+	if err != nil {
+		http.Error(w, "Invalid multipart upload parts. " + err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 删除parted files
+	defer func() {
+		// 需要等其他upload线程都彻底断开并释放了文件句柄，不然的话可能会删不掉文件
+		// 所以这里等4s，这个sleep不会阻塞其他线程
+		time.Sleep(4 * time.Second)
+		for _, v := range matches {
+			os.Remove(v)
+		}
+	}()
+
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Request) {
 	requestMethod := strings.ToUpper(req.Method)
@@ -218,6 +405,31 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	filename := filepath.Base(path)  			// 文件名，会自动忽略掉结尾的"/"
 	dirname := filepath.Dir(path)    			// request path中的的directory name
 	dirpath := filepath.Join(s.Root, dirname) 	// 实际存储系统中的存储目录
+
+	if err := req.ParseForm(); err != nil {
+		http.Error(w, "Fail parsing form data from request. " + err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// s3 multipart uploads handlers
+	if requestMethod == "POST" {
+		if _, exists := req.Form["uploads"]; exists {
+			s.hS3InitiateMultipartUploads(w, req)
+			return
+		}
+		if uploadId, uploadIdExits := req.Form["uploadId"]; uploadIdExits {
+			s.hS3CompleteMultipartUploads(w, req, uploadId[0])
+			return
+		}
+	}
+	if requestMethod == "PUT" {
+		partNumber, partNumberExits := req.Form["partNumber"]
+		uploadId, uploadIdExits := req.Form["uploadId"]
+		if partNumberExits && uploadIdExits {
+			s.hS3UploadPart(w, req, partNumber[0], uploadId[0])
+			return
+		}
+	}
 
 	// check auth (ghs standalone auth)
 	auth := s.readAccessConf(path)
@@ -239,8 +451,8 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 
 	// POST为非覆盖写
 	if requestMethod == "POST" && IsExists(dstPath) {
-		w.WriteHeader(http.StatusConflict)
 		w.Header().Set("Content-Type", "application/json;charset=utf-8")
+		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     false,
 			"description": "file already exists.",
