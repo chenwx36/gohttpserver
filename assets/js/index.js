@@ -316,10 +316,6 @@ var vm = new Vue({
       if (!name) {
         return
       }
-      name = name.replace(/\s*$/g, '')  // 移除末尾的空格
-      if (!name) {
-        return
-      }
       if(!checkPathNameLegal(name)) {
         alert("Name should not contains any of \\/")
         return
