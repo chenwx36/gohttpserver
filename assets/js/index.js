@@ -129,17 +129,17 @@ var vm = new Vue({
       method: 'put',
       parallelUploads: 8,
       paramName: "file",
-      maxFilesize: 16384,
+      maxFilesize: 16384,  // 单文件最大16GiB
       addRemoveLinks: true,
       init: function () {
         var prevBytesSent = {}  // file._instanceId -> bytes
-        this.on("addedfiles", function (filelist) {
-          // 设置要上传的文件的url为path + file.name
-          ;(this.options.url = function (f) {
-            var filename = f[0].name
-            return pathJoin([location.pathname, encodeURIComponent(filename)])
-          }).bind(this)
-        })
+
+        // 设置要上传的文件的url为path + file.name
+        ;(this.options.url = function (f) {
+          var filename = f[0].name
+          return pathJoin([location.pathname, encodeURIComponent(filename)])
+        }).bind(this)
+
         this.on("sending", function (file) {
           var nowMs = new Date().getTime()
           file._instanceId = Math.random().toString()
@@ -316,6 +316,10 @@ var vm = new Vue({
       if (!name) {
         return
       }
+      name = name.replace(/\s*$/g, '')  // 移除末尾的空格
+      if (!name) {
+        return
+      }
       if(!checkPathNameLegal(name)) {
         alert("Name should not contains any of \\/")
         return
@@ -333,13 +337,18 @@ var vm = new Vue({
       })
     },
     Rename: function (f) {
-        var renamePrompt = "Please enter a new name.\n"
+        var baseName = f.name.split('/').pop()
+        var renamePrompt = ""
             + "Note: can not move to other directory\n"
-            + "Original filename: "
-            + f.name.split('/').pop()
+            + "Original name: \"" + baseName + "\"\n"
+            + "Please enter a new name."
         var name = window.prompt(renamePrompt, "")
         console.log(name)
         if (!name) {
+            return
+        }
+        if (name === baseName) {
+            window.alert("没有发生任何变化")
             return
         }
         if(!checkPathNameLegal(name)) {
