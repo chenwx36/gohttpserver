@@ -82,15 +82,17 @@
   </nav>
   <div class="container">
     <div class="col-md-12">
-      <ol class="breadcrumb">
+      <ol class="breadcrumb" style="font-family: consolas, monospace; font-size: 12px;">
         <li>
           <a v-on:click='changePath("/", $event)' href="/"><i class="fa fa-home"></i></a>
         </li>
         <li v-for="bc in breadcrumb.slice(0, breadcrumb.length-1)">
-          <a v-on:click='changePath(bc.path, $event)' href="#">{{bc.name}}</a>
+          <a v-on:click='changePath(bc.path, $event)' href="#">
+            <span style="white-space: pre;">{{bc.name}}</span>
+          </a>
         </li>
         <li v-if="breadcrumb.length >= 1">
-          {{breadcrumb.slice(-1)[0].name}}
+          <span style="white-space: pre;">{{breadcrumb.slice(-1)[0].name}}</span>
         </li>
       </ol>
       <table class="table table-hover" v-if="!previewMode">
