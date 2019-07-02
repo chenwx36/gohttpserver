@@ -89,7 +89,7 @@ func NewHTTPStaticServer(root string) *HTTPStaticServer {
 	// m.HandleFunc("/-/ipa/plist/{path:.*}", s.hPlist)
 	// m.HandleFunc("/-/ipa/link/{path:.*}", s.hIpaLink)
 
-	m.HandleFunc("/{path:.*}", s.hIndex).Methods("GET", "HEAD")
+	m.HandleFunc("/{path:.*}", s.hIndex).Methods("GET", "HEAD")		// HEAD这里只兼容调试，正式环境不会有HEAD
 	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("POST")
 	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("PUT")		// 与post一样，唯一区别是可以覆盖已存在的文件，从界面上传默认都为put
 	m.HandleFunc("/{path:.*}", s.hPatch).Methods("PATCH")
@@ -155,7 +155,13 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err := os.RemoveAll(filepath.Join(s.Root, path))
+	dst := filepath.Join(s.Root, path)
+	if !IsExists(dst) {
+		http.Error(w, "No such file or directory.", http.StatusNotFound)
+		return
+	}
+
+	err := os.RemoveAll(dst)
 	if err != nil {
 		pathErr, ok := err.(*os.PathError)
 		if ok{
@@ -165,6 +171,7 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
 	w.Write([]byte("Success"))
 }
 
@@ -206,12 +213,13 @@ func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 
 
 func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Request) {
+	requestMethod := strings.ToUpper(req.Method)
 	path := mux.Vars(req)["path"]
 	filename := filepath.Base(path)  			// 文件名，会自动忽略掉结尾的"/"
 	dirname := filepath.Dir(path)    			// request path中的的directory name
 	dirpath := filepath.Join(s.Root, dirname) 	// 实际存储系统中的存储目录
 
-	// check auth
+	// check auth (ghs standalone auth)
 	auth := s.readAccessConf(path)
 	if !auth.canUpload(req) {
 		http.Error(w, "Upload forbidden", http.StatusForbidden)
@@ -230,7 +238,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	dstPath := filepath.Join(dirpath, filename)	// 最终存在文件系统里的文件完整路径
 
 	// POST为非覆盖写
-	if strings.ToUpper(req.Method) == "POST" && IsExists(dstPath) {
+	if requestMethod == "POST" && IsExists(dstPath) {
 		w.WriteHeader(http.StatusConflict)
 		w.Header().Set("Content-Type", "application/json;charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -242,11 +250,27 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	}
 
 	// read file body
-	file, _, err := req.FormFile("file")
-	if file == nil {
-		// 没有文件的话则表示新建文件夹，
-		// request path就是目标文件夹
-		dirpath = filepath.Join(s.Root, path)
+	var file io.Reader = nil
+	isS3UserAgent, _ := regexp.MatchString("(Boto|aws-sdk-go|S3Manager)", req.Header.Get("User-Agent"))
+	if isS3UserAgent && requestMethod == "PUT" {
+		// s3 PUT Object的整个body就是文件内容
+		file = req.Body
+	} else {
+		mpFile, _, _ := req.FormFile("file")
+		if mpFile == nil {
+			// 没有文件的话则表示新建文件夹，
+			// request path就是目标文件夹
+			dirpath = filepath.Join(s.Root, path)
+		}
+		defer func() {
+			if mpFile != nil {
+				mpFile.Close()
+			}
+			if req.MultipartForm != nil {
+				req.MultipartForm.RemoveAll() // Seen from go source code, req.MultipartForm not nil after call FormFile(..)
+			}
+		}()
+		file = mpFile
 	}
 
 	// mkdir
@@ -272,19 +296,10 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     true,
 			"destination": path,
+			"makeDirectory": true,
 		})
 		return
 	}
-
-	if err != nil {
-		log.Println("Parse form file:", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer func() {
-		file.Close()
-		req.MultipartForm.RemoveAll() // Seen from go source code, req.MultipartForm not nil after call FormFile(..)
-	}()
 
 	// 3. write file to disk
 	dst, err := os.Create(dstPath)
@@ -297,6 +312,11 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
 		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	// response empty body for s3 user agent
+	if isS3UserAgent {
 		return
 	}
 
