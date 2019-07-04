@@ -314,13 +314,14 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 
 	dstPath := filepath.Join(dirpath, filename)
 	dst, err := os.Create(dstPath)
-	bufferedDst := bufio.NewWriterSize(dst, 4 * 1024 * 1024)
 	if err != nil {
 		log.Println("Create file:", err)
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
 	defer dst.Close()
+
+	bufferedDst := bufio.NewWriterSize(dst, 4 * 1024 * 1024)
 	defer bufferedDst.Flush()
 
 	// 逐个part文件合并
@@ -337,10 +338,6 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 				return
 			}
 		}
-		if _, err := io.Copy(bufferedDst, src); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
 		defer func() {
 			if src != nil {
 				src.Close()
@@ -349,6 +346,13 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 			// 删除parted files
 			os.Remove(srcPath)
 		}()
+
+		bufferedSrc := bufio.NewReaderSize(src, 4 * 1024 * 1024)
+		if _, err := io.Copy(bufferedDst, bufferedSrc); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		
 	}
 
 	responseTpl := `
