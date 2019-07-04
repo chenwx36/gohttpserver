@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
+	"bufio"
 	"log"
 	"mime"
 	"net/http"
@@ -313,12 +314,14 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 
 	dstPath := filepath.Join(dirpath, filename)
 	dst, err := os.Create(dstPath)
+	bufferedDst := bufio.NewWriterSize(dst, 4 * 1024 * 1024)
 	if err != nil {
 		log.Println("Create file:", err)
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
 	defer dst.Close()
+	defer bufferedDst.Flush()
 
 	// 逐个part文件合并
 	for i := 1; i <= len(matches); i += 1 {
@@ -326,11 +329,15 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		srcPath := filepath.Join(dirpath, srcFilename)
 		src, err := os.Open(srcPath)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+			// 可能文件在另一个线程中还没上传完，需要等一下
+			time.Sleep(4)  // 只重试一次
+			src, err = os.Open(srcPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusTooManyRequests)  
+				return
+			}
 		}
-		buf := make([]byte, 4 * 1024 * 1024)  // 4MB 缓冲区
-		if _, err := io.CopyBuffer(dst, src, buf); err != nil {
+		if _, err := io.Copy(bufferedDst, src); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
