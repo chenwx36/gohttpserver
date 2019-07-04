@@ -276,7 +276,8 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 		return
 	}
 	defer dst.Close()
-	if _, err := io.Copy(dst, file); err != nil {
+	buf := make([]byte, 4 * 1024 * 1024)  // 4MB 缓冲区
+	if _, err := io.CopyBuffer(dst, file, buf); err != nil {
 		log.Println("Handle upload file:", err)
 		log.Printf("%v %v\n", dstPath, req.Header.Get("Content-Length"))
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -328,7 +329,8 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if _, err := io.Copy(dst, src); err != nil {
+		buf := make([]byte, 4 * 1024 * 1024)  // 4MB 缓冲区
+		if _, err := io.CopyBuffer(dst, src, buf); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -521,7 +523,8 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		return
 	}
 	defer dst.Close()
-	if _, err := io.Copy(dst, file); err != nil {
+	buf := make([]byte, 4 * 1024 * 1024)  // 4MB 缓冲区
+	if _, err := io.CopyBuffer(dst, file, buf); err != nil {
 		log.Println("Handle upload file:", err)
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
