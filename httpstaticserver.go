@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
+	"bufio"
 	"log"
 	"mime"
 	"net/http"
@@ -323,6 +324,8 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 	defer dst.Sync()
 	defer dst.Close()
 
+	bufferedDst := bufio.NewWriterSize(dst, 4 << 20)  // 4MB
+
 	// 逐个part文件合并
 	for i := 1; i <= len(matches); i += 1 {
 		srcFilename := fmt.Sprintf(".%s-%s.part-%d", filename, uploadId, i)
@@ -343,13 +346,16 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 			os.Remove(srcPath)
 		}()
 
+		bufferedSrc := bufio.NewReaderSize(src, 4 << 20)  // 4MB
+
 		fmt.Printf("[s3-merge] start copying source parted file: %s\n", srcPath)
-		if _, err := io.Copy(dst, src); err != nil {
+		if _, err := io.Copy(bufferedDst, bufferedSrc); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Printf("[s3-merge] finish copying source parted file: %s\n", srcPath)
 	}
+	bufferedDst.Flush()  // 在dst.Sync之前刷入
 
 	responseTpl := `
 		<?xml version="1.0" encoding="UTF-8"?>
@@ -551,7 +557,6 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	// 4. unzip if neccessary
 	if req.FormValue("unzip") == "true" {
 		err = unzipFile(dstPath, dirpath)
-		dst.Close()
 		os.Remove(dstPath)
 		message := "success"
 		if err != nil {
