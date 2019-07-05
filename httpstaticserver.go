@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
-	"bufio"
 	"log"
 	"mime"
 	"net/http"
@@ -149,8 +148,10 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// s3 multipart uploads handlers
-	if uploadId, uploadIdExits := req.Form["uploadId"]; uploadIdExits {
-		s.hS3AbortMultipartUploads(w, req, uploadId[0])
+	query := req.URL.Query()
+	uploadId := query.Get("uploadId")
+	if uploadId != "" {
+		s.hS3AbortMultipartUploads(w, req, uploadId)
 		return
 	}
 
@@ -276,15 +277,14 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
-	defer dst.Close()
-	buf := make([]byte, 4 * 1024 * 1024)  // 4MB 缓冲区
-	if _, err := io.CopyBuffer(dst, file, buf); err != nil {
+	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
 		log.Printf("%v %v\n", dstPath, req.Header.Get("Content-Length"))
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	dst.Sync()  // 强制落盘
+	dst.Sync()   // 强制落盘
+	dst.Close()  // 主动关闭，不要defer
 
 	dummyEtag := fmt.Sprintf("\"dummy-etag-%06d\"", rand.Intn(999999))
 
@@ -320,10 +320,8 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
+	defer dst.Sync()
 	defer dst.Close()
-
-	bufferedDst := bufio.NewWriterSize(dst, 4 * 1024 * 1024)
-	defer bufferedDst.Flush()
 
 	// 逐个part文件合并
 	for i := 1; i <= len(matches); i += 1 {
@@ -332,13 +330,9 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		fmt.Printf("[s3-merge] open source parted file: %s\n", srcPath)
 		src, err := os.Open(srcPath)
 		if err != nil {
-			// 可能文件在另一个线程中还没上传完，需要等一下
-			time.Sleep(4)  // 只重试一次
-			src, err = os.Open(srcPath)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusTooManyRequests)  
-				return
-			}
+			fmt.Printf("[s3-merge err] %s\n", err.Error())
+			http.Error(w, err.Error(), http.StatusRequestTimeout)  
+			return
 		}
 		defer func() {
 			if src != nil {
@@ -350,8 +344,7 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		}()
 
 		fmt.Printf("[s3-merge] start copying source parted file: %s\n", srcPath)
-		bufferedSrc := bufio.NewReaderSize(src, 4 * 1024 * 1024)
-		if _, err := io.Copy(bufferedDst, bufferedSrc); err != nil {
+		if _, err := io.Copy(dst, src); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -422,27 +415,28 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	dirname := filepath.Dir(path)    			// request path中的的directory name
 	dirpath := filepath.Join(s.Root, dirname) 	// 实际存储系统中的存储目录
 
-	if err := req.ParseForm(); err != nil {
-		http.Error(w, "Fail parsing form data from request. " + err.Error(), http.StatusBadRequest)
-		return
-	}
+	// 上传不能parseForm，因为会解析整个body，然后body会写入tmpfile，严重影响性能
+	// 针对s3的协议，不需要parse body部分，只需要知道query部分
+	// 而非s3协议部分，POST/PUT是multipart-form的形式，body是要解析出来的，手动调用 ParseMultipartForm(2<<30) 给2G的缓冲区
+	query := req.URL.Query()
 
 	// s3 multipart uploads handlers
 	if requestMethod == "POST" {
-		if _, exists := req.Form["uploads"]; exists {
+		if _, exists := query["uploads"]; exists {
 			s.hS3InitiateMultipartUploads(w, req)
 			return
 		}
-		if uploadId, uploadIdExits := req.Form["uploadId"]; uploadIdExits {
-			s.hS3CompleteMultipartUploads(w, req, uploadId[0])
+		uploadId := query.Get("uploadId")
+		if uploadId != "" {
+			s.hS3CompleteMultipartUploads(w, req, uploadId)
 			return
 		}
 	}
 	if requestMethod == "PUT" {
-		partNumber, partNumberExits := req.Form["partNumber"]
-		uploadId, uploadIdExits := req.Form["uploadId"]
-		if partNumberExits && uploadIdExits {
-			s.hS3UploadPart(w, req, partNumber[0], uploadId[0])
+		partNumber := query.Get("partNumber")
+		uploadId := query.Get("uploadId")
+		if partNumber != "" && uploadId != "" {
+			s.hS3UploadPart(w, req, partNumber, uploadId)
 			return
 		}
 	}
@@ -484,6 +478,9 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		// s3 PUT Object的整个body就是文件内容
 		file = req.Body
 	} else {
+		// 推迟到要读取body的multipar form了才开始解析，并给2G缓冲区
+		req.ParseMultipartForm(2 << 30)
+
 		mpFile, _, _ := req.FormFile("file")
 		if mpFile == nil {
 			// 没有文件的话则表示新建文件夹，
@@ -536,9 +533,9 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
+	defer dst.Sync()
 	defer dst.Close()
-	buf := make([]byte, 4 * 1024 * 1024)  // 4MB 缓冲区
-	if _, err := io.CopyBuffer(dst, file, buf); err != nil {
+	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
