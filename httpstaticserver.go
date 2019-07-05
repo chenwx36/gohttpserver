@@ -284,6 +284,7 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	dst.Sync()  // 强制落盘
 
 	dummyEtag := fmt.Sprintf("\"dummy-etag-%06d\"", rand.Intn(999999))
 
@@ -328,6 +329,7 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 	for i := 1; i <= len(matches); i += 1 {
 		srcFilename := fmt.Sprintf(".%s-%s.part-%d", filename, uploadId, i)
 		srcPath := filepath.Join(dirpath, srcFilename)
+		fmt.Printf("[s3-merge] open source parted file: %s\n", srcPath)
 		src, err := os.Open(srcPath)
 		if err != nil {
 			// 可能文件在另一个线程中还没上传完，需要等一下
@@ -347,12 +349,13 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 			os.Remove(srcPath)
 		}()
 
+		fmt.Printf("[s3-merge] start copying source parted file: %s\n", srcPath)
 		bufferedSrc := bufio.NewReaderSize(src, 4 * 1024 * 1024)
 		if _, err := io.Copy(bufferedDst, bufferedSrc); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		
+		fmt.Printf("[s3-merge] finish copying source parted file: %s\n", srcPath)
 	}
 
 	responseTpl := `
