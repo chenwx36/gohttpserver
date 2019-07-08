@@ -449,7 +449,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	}
 
 	// 1. check filename
-	log.Println(filename)
+	log.Printf("upload filename: %s\n", filename)
 	if filename != "" {
 		if err := checkFilename(filename); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
@@ -473,32 +473,34 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 
 	// read file body
 	var file io.Reader = nil
-	isS3UserAgent, _ := regexp.MatchString("(Boto|aws-sdk-go|S3Manager)", req.Header.Get("User-Agent"))
-	if isS3UserAgent && requestMethod == "PUT" {
-		// s3 PUT Object的整个body就是文件内容
-		file = req.Body
-	} else {
-		// 推迟到要读取body的multipar form了才开始解析，并给2G缓冲区
-		req.ParseMultipartForm(2 << 30)
+	contentLength := req.Header.Get("Content-Length")
+	if contentLength != "0" && contentLength != "" {
+		if !strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data") {
+			// file的二进制内容都在body部分
+			file = req.Body
+		} else {
+			// 兼容旧的multipart/form-data的形式
+			// 推迟到要读取body的multipar form了才开始解析，并给2G缓冲区
+			req.ParseMultipartForm(2 << 30)
 
-		mpFile, _, _ := req.FormFile("file")
-		if mpFile == nil {
-			// 没有文件的话则表示新建文件夹，
-			// request path就是目标文件夹
-			dirpath = filepath.Join(s.Root, path)
-		}
-		defer func() {
+			mpFile, _, _ := req.FormFile("file")
 			if mpFile != nil {
-				mpFile.Close()
+				defer mpFile.Close()
 			}
 			if req.MultipartForm != nil {
-				req.MultipartForm.RemoveAll() // Seen from go source code, req.MultipartForm not nil after call FormFile(..)
+				defer req.MultipartForm.RemoveAll() // Seen from go source code, req.MultipartForm not nil after call FormFile(..)
 			}
-		}()
-		file = mpFile
+
+			file = mpFile
+		}
 	}
 
 	// mkdir
+	if file == nil {
+		// 没有文件的话则表示新建文件夹，
+		// request path就是目标文件夹
+		dirpath = filepath.Join(s.Root, path)
+	}
 	if !IsExists(dirpath) {
 		if err := os.MkdirAll(dirpath, os.ModePerm); err != nil {
 			log.Println("Create directory:", err)
@@ -542,14 +544,16 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	}
 
 	// response empty body for s3 user agent
+	isS3UserAgent, _ := regexp.MatchString("(Boto|aws-sdk-go|S3Manager)", req.Header.Get("User-Agent"))
 	if isS3UserAgent {
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 
+	// disable it temporarily
 	// 4. unzip if neccessary
-	if req.FormValue("unzip") == "true" {
+	if false && req.FormValue("unzip") == "true" {
 		err = unzipFile(dstPath, dirpath)
 		os.Remove(dstPath)
 		message := "success"
@@ -565,7 +569,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
-		"destination": filepath.Join(path, filename),
+		"destination": path,
 	})
 }
 

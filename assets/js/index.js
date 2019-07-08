@@ -140,14 +140,25 @@ var vm = new Vue({
           return pathJoin([location.pathname, encodeURIComponent(filename)])
         }).bind(this)
 
-        this.on("sending", function (file) {
+        this.options.headers = {
+          'Accept': '*/*',
+        }
+
+        this.on("sending", function (file, xhr) {
+          console.log(file)
+
           var nowMs = new Date().getTime()
           file._instanceId = Math.random().toString()
           file._startTs = nowMs
 
           var $dzFilename = $(".dz-filename", file.previewElement)
           $('<div class="ghs-dz-rate" style="font-size:12px;"></div>').insertAfter($dzFilename)
-          console.log(file)
+          
+          // 直接把file作为body传上去，不构造成multipart/form-data
+          var _send = xhr.send;
+          xhr.send = function() {
+            _send.call(xhr, file);
+          };
         })
         this.on("uploadprogress", function (file, progress) {
           var nowMs = new Date().getTime()
