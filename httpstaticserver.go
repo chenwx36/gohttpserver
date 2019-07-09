@@ -104,6 +104,11 @@ func (s *HTTPStaticServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPStaticServer) hIndex(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	relPath := filepath.Join(s.Root, path)
 	if r.FormValue("json") == "true" {
 		s.hJSONList(w, r)
@@ -142,8 +147,9 @@ func (s *HTTPStaticServer) hIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
-	if err := req.ParseForm(); err != nil {
-		http.Error(w, "Fail parsing form data from request. " + err.Error(), http.StatusBadRequest)
+	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
 		return
 	}
 
@@ -156,7 +162,6 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// can delete file and directory
-	path := mux.Vars(req)["path"]
 	auth := s.readAccessConf(path)
 	if !auth.canDelete(req) {
 		http.Error(w, "Delete forbidden", http.StatusForbidden)
@@ -195,6 +200,11 @@ func (s *HTTPStaticServer) hPatch(w http.ResponseWriter, req *http.Request) {
 func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
 	// not need to authenticate, oauth2-proxy will help authenticate
 	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	filename := req.FormValue("name")
 	if err := checkFilename(filename); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -251,6 +261,11 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 	}
 
 	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	filename := filepath.Base(path)
 	dirname := filepath.Dir(path)
 	dirpath := filepath.Join(s.Root, dirname)
@@ -302,6 +317,11 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 	}
 
 	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	filename := filepath.Base(path)
 	dirname := filepath.Dir(path)
 	dirpath := filepath.Join(s.Root, dirname)
@@ -384,6 +404,11 @@ func (s *HTTPStaticServer) hS3AbortMultipartUploads(w http.ResponseWriter, req *
 	}
 
 	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	filename := filepath.Base(path)
 	dirname := filepath.Dir(path)
 	dirpath := filepath.Join(s.Root, dirname)
@@ -411,6 +436,11 @@ func (s *HTTPStaticServer) hS3AbortMultipartUploads(w http.ResponseWriter, req *
 func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Request) {
 	requestMethod := strings.ToUpper(req.Method)
 	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	filename := filepath.Base(path)  			// 文件名，会自动忽略掉结尾的"/"
 	dirname := filepath.Dir(path)    			// request path中的的directory name
 	dirpath := filepath.Join(s.Root, dirname) 	// 实际存储系统中的存储目录
@@ -603,6 +633,11 @@ func parseApkInfo(path string) (ai *ApkInfo) {
 
 func (s *HTTPStaticServer) hInfo(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	relPath := filepath.Join(s.Root, path)
 
 	fi, err := os.Stat(relPath)
@@ -635,6 +670,11 @@ func (s *HTTPStaticServer) hInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPStaticServer) hZip(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	auth := s.readAccessConf(path)
 	if !auth.canArchive(r) {
 		http.Error(w, "Archive not allowed", http.StatusMethodNotAllowed)
@@ -667,6 +707,11 @@ func combineURL(r *http.Request, path string) *url.URL {
 
 func (s *HTTPStaticServer) hPlist(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	// rename *.plist to *.ipa
 	if filepath.Ext(path) == ".plist" {
 		path = path[0:len(path)-6] + ".ipa"
@@ -698,6 +743,11 @@ func (s *HTTPStaticServer) hPlist(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPStaticServer) hIpaLink(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	var plistUrl string
 
 	if r.URL.Scheme == "https" {
@@ -753,6 +803,11 @@ func (s *HTTPStaticServer) genPlistLink(httpPlistLink string) (plistUrl string, 
 
 func (s *HTTPStaticServer) hFileOrDirectory(w http.ResponseWriter, r *http.Request) {
 	path := mux.Vars(r)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	http.ServeFile(w, r, filepath.Join(s.Root, path))
 }
 
@@ -861,6 +916,11 @@ func (c *AccessConf) canUpload(r *http.Request) bool {
 
 func (s *HTTPStaticServer) hJSONList(w http.ResponseWriter, r *http.Request) {
 	requestPath := mux.Vars(r)["path"]
+	if !IsSafePath(requestPath) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
 	localPath := filepath.Join(s.Root, requestPath)
 	search := r.FormValue("search")
 	auth := s.readAccessConf(requestPath)
@@ -1142,4 +1202,17 @@ func IsExists(path string) bool {
 		return false
 	}
 	return true
+}
+
+func IsSafePath(path string) bool {
+	if path == "" || path == "/" {
+		return true
+	}
+
+	// 任意包含访问parent 目录的path都不安全，ban掉
+	if strings.HasPrefix("../", path) {
+		return false
+	}
+	matched, _ := regexp.MatchString(`[\/\\]\.{1,2}[\/\\]`, path)
+	return !matched
 }
