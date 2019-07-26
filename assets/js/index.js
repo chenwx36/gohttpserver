@@ -329,7 +329,6 @@ var vm = new Vue({
         data: data,
         method: "GET",
         success: function (res) {
-          console.log(res)
           $("#file-info-title").text(f.name);
           $("#file-info-content").text(JSON.stringify(res, null, 2));
           $("#file-info-modal").modal("show");
