@@ -93,7 +93,6 @@ func NewHTTPStaticServer(root string) *HTTPStaticServer {
 	m.HandleFunc("/{path:.*}", s.hIndex).Methods("GET", "HEAD")		// HEAD这里只兼容调试，正式环境不会有HEAD
 	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("POST")
 	m.HandleFunc("/{path:.*}", s.hUploadOrMkdir).Methods("PUT")		// 与post一样，唯一区别是可以覆盖已存在的文件，从界面上传默认都为put
-	m.HandleFunc("/{path:.*}", s.hPatch).Methods("PATCH")
 	m.HandleFunc("/{path:.*}", s.hDelete).Methods("DELETE")
 	return s
 }
@@ -186,47 +185,6 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *HTTPStaticServer) hPatch(w http.ResponseWriter, req *http.Request) {
-	// not need to authenticate, oauth2-proxy will help authenticate
-	if req.FormValue("op") == "rename" {
-		s.hRename(w, req)
-		return
-	}
-	http.Error(w, "op value is not legal", http.StatusBadRequest)
-}
-
-func (s *HTTPStaticServer) hRename(w http.ResponseWriter, req *http.Request) {
-	// not need to authenticate, oauth2-proxy will help authenticate
-	path := mux.Vars(req)["path"]
-	if !IsSafePath(path) {
-		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
-		return
-	}
-
-	filename := req.FormValue("name")
-	if err := checkFilename(filename); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	dir := filepath.Dir(path)
-	fpath := filepath.Join(dir, filename)
-	if IsExists(filepath.Join(s.Root, fpath)) {
-		http.Error(w, "name conflict with exist file or directory", http.StatusConflict)
-		return
-	}
-	err := os.Rename(filepath.Join(s.Root, path), filepath.Join(s.Root, fpath))
-	if err != nil {
-		linkErr, ok := err.(*os.LinkError)
-		if ok {
-			http.Error(w, linkErr.Op + " " + path + ": " + linkErr.Err.Error(), http.StatusConflict)
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-	w.Write([]byte("Success"))
 }
 
 func (s *HTTPStaticServer) hS3InitiateMultipartUploads(w http.ResponseWriter, req *http.Request) {

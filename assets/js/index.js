@@ -343,39 +343,6 @@ var vm = new Vue({
         }
       })
     },
-    Rename: function (f) {
-        var baseName = f.name.split('/').pop()
-        var renamePrompt = ""
-            + "Note: can not move to other directory\n"
-            + "Original name: \"" + baseName + "\"\n"
-            + "Please enter a new name."
-        var name = window.prompt(renamePrompt, "")
-        console.log(name)
-        if (!name) {
-            return
-        }
-        if (name === baseName) {
-            window.alert("没有发生任何变化")
-            return
-        }
-        if(!checkPathNameLegal(name)) {
-            alert("Name should not contains any of \\/")
-            return
-        }
-        var data = $.extend({op: "rename", name: name}, location.search);
-        $.ajax({
-            url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
-            data: data,
-            method: "PATCH",
-            success: function (res) {
-                console.log(res)
-                loadFileList()
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                showErrorMessage(jqXHR)
-            }
-        })
-    },
     deletePathConfirm: function (f, e) {
       console.log(f)
       e.preventDefault();

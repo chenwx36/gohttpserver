@@ -157,9 +157,6 @@
                 <button class="btn btn-default btn-xs" v-if="auth.delete" v-on:click="deletePathConfirm(f, $event)">
                   <span style="color:#CC3300" class="glyphicon glyphicon-trash"></span>
                 </button>
-                <button class="btn btn-default btn-xs" v-on:click="Rename(f)">
-                  <span class="hidden-xs">Rename</span>
-                </button>
               </template>
               <template v-if="f.type == 'file'">
                 <a class="btn btn-default btn-xs hidden-xs" href="{{genDownloadURL(f)}}">
@@ -182,9 +179,6 @@
                 </a>
                 <button class="btn btn-default btn-xs" v-if="auth.delete" v-on:click="deletePathConfirm(f, $event)">
                   <span style="color:#CC3300" class="glyphicon glyphicon-trash"></span>
-                </button>
-                <button class="btn btn-default btn-xs" v-on:click="Rename(f)">
-                    <span class="hidden-xs">Rename</span>
                 </button>
               </template>
             </td>
