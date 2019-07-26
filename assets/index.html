@@ -164,7 +164,7 @@
               </template>
               <template v-if="f.type == 'file'">
                 <a class="btn btn-default btn-xs hidden-xs" href="{{genDownloadURL(f)}}">
-                  <span class="hidden-xs">Download</span>
+                  <span class="hidden-xs"></span>
                   <span class="glyphicon glyphicon-download-alt"></span>
                 </a>
                 <button class="btn btn-default btn-xs bstooltip" data-trigger="manual" data-title="Copied!"
@@ -173,6 +173,11 @@
                 </button>
                 <button class="btn btn-default btn-xs" v-on:click="showInfo(f)">
                   <span class="glyphicon glyphicon-info-sign"></span>
+                </button>
+                <button class="btn btn-default btn-xs" v-on:click="showChecksumMd5(f)">
+                  <abbr title='checksum: md5 (experimental)' style='border-bottom: none;'>
+                    <span class="glyphicon glyphicon-check"></span>
+                  </abbr>
                 </button>
                 <button class="btn btn-default btn-xs hidden-xs" v-on:click="genQrcode(f.name)">
                   <span v-if="shouldHaveQrcode(f.name)">QRCode</span>

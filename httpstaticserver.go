@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"crypto/md5"
 	"errors"
 	"fmt"
 	"html/template"
@@ -118,6 +119,10 @@ func (s *HTTPStaticServer) hIndex(w http.ResponseWriter, r *http.Request) {
 		s.hInfo(w, r)
 		return
 	}
+	if r.FormValue("op") == "checksum" && r.FormValue("checksum-type") == "md5" {
+		s.hCalculateMd5(w, r)
+		return
+	}
 
 	if r.FormValue("op") == "archive" {
 		s.hZip(w, r)
@@ -185,6 +190,48 @@ func (s *HTTPStaticServer) hDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *HTTPStaticServer) hCalculateMd5(w http.ResponseWriter, req *http.Request) {
+	path := mux.Vars(req)["path"]
+	if !IsSafePath(path) {
+		http.Error(w, "Invalid parent directory accessing.", http.StatusBadRequest)
+		return
+	}
+
+	dst := filepath.Join(s.Root, path)
+
+	// open file
+	f, err := os.Open(dst)
+	if err != nil {
+		http.Error(w, "", http.StatusNotFound)
+	}
+	defer f.Close()
+
+	// compute md5
+	// 第一版先总是重新计算md5值，不做缓存逻辑
+	// 有必要的话再看情况缓存到文件系统
+	_t0 := time.Now().UnixNano()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+	chkmd5 := fmt.Sprintf("%x", h.Sum(nil))
+	_t1 := time.Now().UnixNano()
+
+	w.Header().Set("checksum-type", "md5")
+	w.Header().Set("checksum-value", chkmd5)
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"checksum-type": "md5",
+			"checksum-value": chkmd5,
+			"from-cache": false,
+			"time-consumed": float64(_t1 - _t0) / 1000000000,
+		},
+		"code": http.StatusOK,
+	})
 }
 
 func (s *HTTPStaticServer) hS3InitiateMultipartUploads(w http.ResponseWriter, req *http.Request) {

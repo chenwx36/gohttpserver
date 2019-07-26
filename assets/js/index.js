@@ -313,9 +313,26 @@ var vm = new Vue({
         method: "GET",
         success: function (res) {
           $("#file-info-title").text(f.name);
-          $("#file-info-content").text(JSON.stringify(res, null, 4));
+          $("#file-info-content").text(JSON.stringify(res, null, 2));
           $("#file-info-modal").modal("show");
           // console.log(JSON.stringify(res, null, 4));
+        },
+        error: function (jqXHR, textStatus, errorThrown) {
+          showErrorMessage(jqXHR)
+        }
+      })
+    },
+    showChecksumMd5: function (f) {
+      var data = $.extend({op: "checksum", "checksum-type": "md5"}, location.search);
+      $.ajax({
+        url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
+        data: data,
+        method: "GET",
+        success: function (res) {
+          console.log(res)
+          $("#file-info-title").text(f.name);
+          $("#file-info-content").text(JSON.stringify(res, null, 2));
+          $("#file-info-modal").modal("show");
         },
         error: function (jqXHR, textStatus, errorThrown) {
           showErrorMessage(jqXHR)
