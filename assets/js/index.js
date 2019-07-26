@@ -65,6 +65,7 @@ var vm = new Vue({
       type: "dir",
     }],
     myDropzone: null,
+    filenameSortBy: '',  // ENUM: {'', 'asc', 'desc'}
   },
   computed: {
     computedFiles: function () {
@@ -384,6 +385,44 @@ var vm = new Vue({
       }
       return this.breadcrumb;
     },
+    handleSortByFilename: function () {
+      if (this.filenameSortBy === '') {
+        this.filenameSortBy = 'asc'
+        this.files = this.files.sort(function(a, b) {
+          if (a.type === 'dir' && b.type !== 'dir') {
+            return -1
+          } 
+          if (b.type === 'dir' && a.type !== 'dir') {
+            return 1
+          }
+          return a.name.toLocaleLowerCase().localeCompare(b.name.toLocaleLowerCase())
+        })
+      } else if (this.filenameSortBy === 'asc') {
+        this.filenameSortBy = 'desc'
+        this.files = this.files.sort(function(a, b) {
+          if (a.type === 'dir' && b.type !== 'dir') {
+            return -1
+          } 
+          if (b.type === 'dir' && a.type !== 'dir') {
+            return 1
+          }
+          return -a.name.toLocaleLowerCase().localeCompare(b.name.toLocaleLowerCase())
+        })
+      } else {
+        // acs -- desc -- <default> 循环
+        // <default> 按modtime排序
+        this.filenameSortBy = ''
+        this.files = this.files.sort(function(a, b) {
+          if (a.type === 'dir' && b.type !== 'dir') {
+            return -1
+          } 
+          if (b.type === 'dir' && a.type !== 'dir') {
+            return 1
+          }
+          return b.mtime - a.mtime
+        })
+      }
+    },
 
     loadAll: function () {
       // TODO: move loadFileList here
@@ -420,9 +459,14 @@ function loadFileList(pathname) {
       dataType: "json",
       cache: false,
       success: function (res) {
-        res.files = _.sortBy(res.files, function (f) {
-          var weight = f.type == 'dir' ? 1000 : 1;
-          return -weight * f.mtime;
+        res.files = res.files.sort(function(a, b) {
+          if (a.type === 'dir' && b.type !== 'dir') {
+            return -1
+          } 
+          if (b.type === 'dir' && a.type !== 'dir') {
+            return 1
+          }
+          return b.mtime - a.mtime
         })
         vm.files = res.files;
         vm.auth = res.auth;

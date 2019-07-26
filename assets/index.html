@@ -119,7 +119,11 @@
             </td>
           </tr>
           <tr>
-            <th>Name</th>
+            <th>
+              <span style="cursor: pointer" v-on:click='handleSortByFilename()'>
+                <span>Name</span>
+              </span>
+            </th>
             <th>Size</th>
             <th class="hidden-xs">
               <span style="cursor: pointer" v-on:click='mtimeTypeFromNow = !mtimeTypeFromNow'>ModTime</span>
