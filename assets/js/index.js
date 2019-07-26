@@ -323,7 +323,7 @@ var vm = new Vue({
       e.preventDefault()
     },
     showInfo: function (f) {
-      var data = $.extend({op: "info"}, getqs(location.search));
+      var data = $.extend(getqs(location.search), {op: "info"});
       $.ajax({
         url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
         data: data,
@@ -340,7 +340,7 @@ var vm = new Vue({
       })
     },
     showChecksumMd5: function (f) {
-      var data = $.extend({op: "checksum", "checksum-type": "md5"}, getqs(location.search));
+      var data = $.extend(getqs(location.search), {op: "checksum", "checksum-type": "md5"});
       $.ajax({
         url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
         data: data,
