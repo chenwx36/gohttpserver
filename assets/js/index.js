@@ -36,6 +36,23 @@ function showErrorMessage(jqXHR) {
   console.error(errMsg)
 }
 
+var getqs = function(a) {
+  a = a || window.location.search
+  a = a.substr(1).split('&')
+
+  // --> [] == ""
+  if (a == "") return {};
+  var b = {};
+  for (var i = 0; i < a.length; ++i)
+  {
+      var p=a[i].split('=', 2);
+      if (p.length == 1)
+          b[p[0]] = "";
+      else
+          b[p[0]] = decodeURIComponent(p[1].replace(/\+/g, " "));
+  }
+  return b;
+}
 
 var vm = new Vue({
   el: "#app",
@@ -306,7 +323,7 @@ var vm = new Vue({
       e.preventDefault()
     },
     showInfo: function (f) {
-      var data = $.extend({op: "info"}, location.search);
+      var data = $.extend({op: "info"}, getqs(location.search));
       $.ajax({
         url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
         data: data,
@@ -323,7 +340,7 @@ var vm = new Vue({
       })
     },
     showChecksumMd5: function (f) {
-      var data = $.extend({op: "checksum", "checksum-type": "md5"}, location.search);
+      var data = $.extend({op: "checksum", "checksum-type": "md5"}, getqs(location.search));
       $.ajax({
         url: pathJoin(["/", location.pathname, encodeURIComponent(f.name)]),
         data: data,
