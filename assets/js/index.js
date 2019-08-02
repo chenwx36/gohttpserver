@@ -53,24 +53,33 @@ var getqs = function (a) {
     return b;
 }
 
+//是否开启分块上传
+var OPEN_MULTIPART_UPLOAD = true
+//每个文件块的大小
+var CHUNK_SIZE = 8 * (1 << 20)
+//分块上传的最大线程数
+var THREAD_NUM = 6
+//分块上传最少分块数
+var MIN_CHUNK_SIZE = 3
+
+
 /**
  * 文件分块上传
  * @param file 分块上传的文件
  * @param dropzoneObj dropzoned对象
  * @param fileXhr dropzone给每个file生成的XmlHttpRequest对象
- * @returns {boolean} 是否使用dropzone
+ * @returns {boolean} 是否不满足分块上传条件，而使用dropzone
  */
 function multipartUploadFile(file, dropzoneObj, fileXhr) {
-    var CHUNK_SIZE = 8 * (1 << 20)
-    var THREAD_NUM = 4
-
+    if (!OPEN_MULTIPART_UPLOAD) return true
     var chunks = new FileUtil().sliceFile(file, CHUNK_SIZE)
-    if (chunks.length <= 1) {
+    if (chunks.length <= MIN_CHUNK_SIZE) {
         return true
     }
+    var fullPath = file.fullPath == undefined ? file.name : file.fullPath
     var fileMultipartUploadApi = new FileMultipartUploadApi({
         host: 'localhost:8000',
-        filePath: pathJoin([location.pathname, encodeURIComponent(file.name)])
+        filePath: pathJoin([location.pathname, encodeURIComponent(fullPath)])
     })
     initUploadPart()
     doUploadFilePart(THREAD_NUM, handleProgress, handleComplete, handleCancel)
@@ -292,15 +301,15 @@ var vm = new Vue({
         })
         this.myDropzone = new Dropzone("#upload-form", {
             method: 'put',
-            parallelUploads: 1,
+            parallelUploads: 4,
             paramName: "file",
             maxFilesize: 16384,  // 单文件最大16GiB
             addRemoveLinks: true,
             init: function () {
                 //设置要上传的文件的url为path + file.name
                 (this.options.url = function (f) {
-                    var filename = f[0].name
-                    return pathJoin([location.pathname, encodeURIComponent(filename)])
+                    var fullPath = f[0].fullPath == undefined ? f[0].name : f[0].fullPath
+                    return pathJoin([location.pathname, encodeURIComponent(fullPath)])
                 }).bind(this)
                 this.options.headers = {
                     'Accept': '*/*',
