@@ -60,7 +60,7 @@ window.S3_MULTIPART_UPLOAD_ENABLED = true
 window.S3_MULTIPART_UPLOAD_CHUNK_SIZE = 8 * (1 << 20)
 
 //分块上传的最大线程数
-window.S3_MULTIPART_UPLOAD_CONCURRENCY = 3
+window.S3_MULTIPART_UPLOAD_CONCURRENCY = 6
 
 //分块上传最少分块数(按照S3_MULTIPART_UPLOAD_CHUNK_SIZE大小分块后的数量)
 window.S3_MULTIPART_UPLOAD_THRESHOLD_SIZE = 3
@@ -88,6 +88,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
 
     //初始化文件分块上传
     function initUploadPart() {
+        var onError = handleError(1000)
         fileMultipartUploadApi.initUpload().then((function (data) {
             this.uploadId = this.getParamFromXml(data, 'UploadId')
             file.status = Dropzone.UPLOADING
@@ -98,22 +99,13 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     handleProgress(),
                     handleComplete,
                     handleCancel(),
-                    handleChunkSendError())
+                    onError)
             }
         }).bind(fileMultipartUploadApi), function (jqXhr, textStatus, errorThorwn) {
             var msg = 'S3文件分块上传初始化出错。文件 ' + fullPath
-            if (jqXhr.status !== 200) {
-                switch (jqXhr.status) {
-                    case 408:
-                        initUploadPart()
-                        break
-                    default:
-                        file.status = Dropzone.ERROR
-                        needAbortUpload = true
-                        dropzoneObj._errorProcessing([file], msg, null)
-                        console.error(msg, errorThorwn)
-                }
-            }
+            onError(jqXhr, errorThorwn, msg, function () {
+                initUploadPart()
+            })
         })
     }
 
@@ -148,6 +140,11 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     data: data
                 }).then(function (res) {
                     onComplete(res)
+                }, function (jqXhr, textStatus, errorThorwn) {
+                    var msg = '合并文件请求 ' + fullPath + ' 出错。'
+                    onError(jqXhr, errorThorwn, msg, function () {
+                        completeUpload([], chunks)
+                    }, onCancel)
                 })
             }).bind(fileMultipartUploadApi))
         }
@@ -177,7 +174,10 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     delete ajaxMap[index]
                     delete dtdMap[index]
                 }, function (jqXhr, textStatus, errorThorwn) {
-                    onError(jqXhr, index, sendChunk, errorThorwn, onCancel)
+                    var msg = '上传文件 ' + fullPath + ' 出错。'
+                    onError(jqXhr, errorThorwn, msg, function () {
+                        sendChunk(index)
+                    }, onCancel)
                 })
                 ajaxMap[index] = ajaxObj.obj
                 if (taskQueue.length === 0) {
@@ -253,25 +253,22 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
         return doAbort
     }
 
-    function handleChunkSendError() {
+    function handleError(timeout) {
         var hasCancel = false
-        return function (jqXhr, index, sendChunkFun, errorThorwn, onCancel) {
+        return function (jqXhr, err, msg, callback, onCancel) {
             if (hasCancel) return
             if (jqXhr.status !== 200) {
                 switch (jqXhr.status) {
                     case 408:
-                        setTimeout(function () {
-                            sendChunkFun(index)
-                        }, 1000)
+                        setTimeout(callback, timeout)
                         break
                     default:
                         hasCancel = true
-                        var msg = '上传文件 ' + fullPath + ' 出错。'
                         file.status = Dropzone.ERROR
                         needAbortUpload = true
+                        onCancel && onCancel()
                         dropzoneObj._errorProcessing([file], msg, jqXhr)
-                        onCancel()
-                        console.error(msg, errorThorwn)
+                        console.error(msg, err)
                 }
             }
         }
