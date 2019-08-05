@@ -107,6 +107,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
     function doUploadFilePart(threadNum, onProgress, onComplete, onCancel) {
         var sendChunkIndex = -1
         var ajaxMap = {}
+        var dtdMap = {}
 
         //对于多线程来讲需要加SyncLock。
         var getSendChunkIndex = function () {
@@ -115,8 +116,8 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                 return sendChunkIndex
             return -1
         }
-        var completeUpload = function (dtd, chunks) {
-            dtd.then((function () {
+        var completeUpload = function (dtdList, chunks) {
+            $.when.apply(null, dtdList).then((function () {
                 var data = chunks.map(function (value) {
                     return {
                         PartNumber: value.partNumber,
@@ -140,7 +141,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             }
             if (0 <= index && index < chunks.length) {
                 var ajaxObj = {obj: null}
-                var dtd = fileMultipartUploadApi.uploadPart({
+                dtdMap[index] = fileMultipartUploadApi.uploadPart({
                     contentLength: chunks[index].length,
                     partNumber: index + 1,
                     data: chunks[index].fileBlob,
@@ -152,10 +153,15 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     chunks[index].etag = respHeaderMap.etag
                     sendChunk(getSendChunkIndex())
                     delete ajaxMap[index]
+                    delete dtdMap[index]
                 })
                 ajaxMap[index] = ajaxObj.obj
                 if (index === chunks.length - 1) {
-                    completeUpload(dtd, chunks)
+                    var dtdList = [];
+                    for (var i in dtdMap) {
+                        dtdList.push(dtdMap[i])
+                    }
+                    completeUpload(dtdList, chunks)
                 }
             }
         }
