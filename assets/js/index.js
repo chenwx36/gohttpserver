@@ -60,7 +60,7 @@ window.S3_MULTIPART_UPLOAD_ENABLED = true
 window.S3_MULTIPART_UPLOAD_CHUNK_SIZE = 8 * (1 << 20)
 
 //分块上传的最大线程数
-window.S3_MULTIPART_UPLOAD_CONCURRENCY = 6
+window.S3_MULTIPART_UPLOAD_CONCURRENCY = 3
 
 //分块上传最少分块数(按照S3_MULTIPART_UPLOAD_CHUNK_SIZE大小分块后的数量)
 window.S3_MULTIPART_UPLOAD_THRESHOLD_SIZE = 3
@@ -97,14 +97,22 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                 doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY,
                     handleProgress(),
                     handleComplete,
-                    handleCancel())
+                    handleCancel(),
+                    handleChunkSendError())
             }
         }).bind(fileMultipartUploadApi), function (jqXhr, textStatus, errorThorwn) {
             var msg = 'S3文件分块上传初始化出错。文件 ' + fullPath
             if (jqXhr.status !== 200) {
-                file.status = Dropzone.CANCELED
-                needAbortUpload = true
-                console.error(msg, errorThorwn)
+                switch (jqXhr.status) {
+                    case 408:
+                        initUploadPart()
+                        break
+                    default:
+                        file.status = Dropzone.ERROR
+                        needAbortUpload = true
+                        dropzoneObj._errorProcessing([file], msg, null)
+                        console.error(msg, errorThorwn)
+                }
             }
         })
     }
@@ -115,17 +123,17 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
      * @param onProgress 上传线程回调函数
      * @param onComplete 上传完成回调函数
      * @param onCancel 上传中止回调函数
+     * @param onError 上传出错回调函数
      */
-    function doUploadFilePart(threadNum, onProgress, onComplete, onCancel) {
-        var sendChunkIndex = -1
+    function doUploadFilePart(threadNum, onProgress, onComplete, onCancel, onError) {
+        var taskQueue = []
         var ajaxMap = {}
         var dtdMap = {}
 
         //对于多线程来讲需要加SyncLock。
         var getSendChunkIndex = function () {
-            sendChunkIndex++
-            if (sendChunkIndex < chunks.length)
-                return sendChunkIndex
+            if (taskQueue.length > 0)
+                return taskQueue.shift()
             return -1
         }
         var completeUpload = function (dtdList, chunks) {
@@ -144,7 +152,9 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             }).bind(fileMultipartUploadApi))
         }
         var sendChunk = function (index) {
-            if (file.status === Dropzone.CANCELED || needAbortUpload) {
+            if (file.status === Dropzone.CANCELED
+                || file.status === Dropzone.ERROR
+                || needAbortUpload) {
                 for (var key in ajaxMap) {
                     ajaxMap[key].abort()
                 }
@@ -167,15 +177,10 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     delete ajaxMap[index]
                     delete dtdMap[index]
                 }, function (jqXhr, textStatus, errorThorwn) {
-                    var msg = '上传文件 ' + fullPath + ' 出错。'
-                    if (jqXhr.status !== 200) {
-                        file.status = Dropzone.CANCELED
-                        needAbortUpload = true
-                        console.error(msg, errorThorwn)
-                    }
+                    onError(jqXhr, index, sendChunk, errorThorwn, onCancel)
                 })
                 ajaxMap[index] = ajaxObj.obj
-                if (index === chunks.length - 1) {
+                if (taskQueue.length === 0) {
                     var dtdList = [];
                     for (var i in dtdMap) {
                         dtdList.push(dtdMap[i])
@@ -185,6 +190,9 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             }
         }
         var init = function () {
+            chunks.forEach(function (item, index) {
+                taskQueue.push(index)
+            })
             while (threadNum-- > 0) {
                 sendChunk(getSendChunkIndex())
             }
@@ -227,13 +235,45 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
     }
 
     function handleCancel() {
-        var hasSendAbort = false
-        return function () {
-            if (hasSendAbort) return
-            hasSendAbort = true
-            fileMultipartUploadApi.abortMultipartUpload().then(function (res, status, xhr) {
+        var sendAbortSuccess = false
 
-            })
+        function doAbort() {
+            if (sendAbortSuccess) return
+            sendAbortSuccess = true
+            fileMultipartUploadApi.abortMultipartUpload().fail(
+                function (jqXhr, textStatus, errorThorwn) {
+                    console.error(jqXhr.status, textStatus, errorThorwn)
+                    setTimeout(function () {
+                        sendAbortSuccess = false
+                        doAbort()
+                    }, 1000)
+                })
+        }
+
+        return doAbort
+    }
+
+    function handleChunkSendError() {
+        var hasCancel = false
+        return function (jqXhr, index, sendChunkFun, errorThorwn, onCancel) {
+            if (hasCancel) return
+            if (jqXhr.status !== 200) {
+                switch (jqXhr.status) {
+                    case 408:
+                        setTimeout(function () {
+                            sendChunkFun(index)
+                        }, 1000)
+                        break
+                    default:
+                        hasCancel = true
+                        var msg = '上传文件 ' + fullPath + ' 出错。'
+                        file.status = Dropzone.ERROR
+                        needAbortUpload = true
+                        dropzoneObj._errorProcessing([file], msg, jqXhr)
+                        onCancel()
+                        console.error(msg, errorThorwn)
+                }
+            }
         }
     }
 
@@ -373,6 +413,7 @@ var vm = new Vue({
                     }
                 }).bind(this));
                 this.on("complete", (function (file) {
+                    if (!this.isDropzone && file.status === Dropzone.ERROR) return
                     loadFileList()
                     delete prevBytesSent[file._instanceId]
                     var $dzRate = $(".ghs-dz-rate", file.previewElement)

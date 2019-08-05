@@ -113,9 +113,6 @@ function FileMultipartUploadApi(config) {
             url: url,
             type: 'DELETE',
             async: option.async === undefined ? true : option.async,
-            error: function (jqXhr, textStatus, errorThorwn) {
-                console.error(textStatus, errorThorwn)
-            }
         })
     }).bind(this)
 
