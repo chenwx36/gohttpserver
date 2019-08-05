@@ -54,13 +54,16 @@ var getqs = function (a) {
 }
 
 //是否开启分块上传
-var OPEN_MULTIPART_UPLOAD = true
-//每个文件块的大小
-var CHUNK_SIZE = 8 * (1 << 20)
+window.S3_MULTIPART_UPLOAD_ENABLED = false
+
+//每个文件块的大小(bytes)
+window.S3_MULTIPART_UPLOAD_CHUNK_SIZE = 8 * (1 << 20)
+
 //分块上传的最大线程数
-var THREAD_NUM = 6
-//分块上传最少分块数
-var MIN_CHUNK_SIZE = 3
+window.S3_MULTIPART_UPLOAD_CONCURRENCY = 6
+
+//分块上传最少分块数(按照S3_MULTIPART_UPLOAD_CHUNK_SIZE大小分块后的数量)
+window.S3_MULTIPART_UPLOAD_THRESHOLD_SIZE = 3
 
 
 /**
@@ -71,18 +74,17 @@ var MIN_CHUNK_SIZE = 3
  * @returns {boolean} 是否不满足分块上传条件，而使用dropzone
  */
 function multipartUploadFile(file, dropzoneObj, fileXhr) {
-    if (!OPEN_MULTIPART_UPLOAD) return true
-    var chunks = new FileUtil().sliceFile(file, CHUNK_SIZE)
-    if (chunks.length <= MIN_CHUNK_SIZE) {
+    if (!window.S3_MULTIPART_UPLOAD_ENABLED) return true
+    var chunks = new FileUtil().sliceFile(file, window.S3_MULTIPART_UPLOAD_CHUNK_SIZE)
+    if (chunks.length <= window.S3_MULTIPART_UPLOAD_THRESHOLD_SIZE) {
         return true
     }
     var fullPath = file.fullPath == undefined ? file.name : file.fullPath
     var fileMultipartUploadApi = new FileMultipartUploadApi({
-        host: 'localhost:8000',
-        filePath: pathJoin([location.pathname, encodeURIComponent(fullPath)])
+        filePath: pathJoin([location.pathname, encodeURIComponent(fullPath)]),
     })
     initUploadPart()
-    doUploadFilePart(THREAD_NUM, handleProgress, handleComplete, handleCancel)
+    doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY, handleProgress, handleComplete, handleCancel)
 
     //初始化文件分块上传
     function initUploadPart() {

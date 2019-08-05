@@ -1,11 +1,10 @@
 function FileMultipartUploadApi(config) {
 
-    this.host = "//" + (config.host || 'localhost:8000')
     this.filePath = config.filePath || ''
     this.uploadId = ''
 
     var _updateUrl = (function () {
-        return this.host + this.filePath
+        return this.filePath
     }).bind(this)
 
     this.initUpload = (function (option) {
