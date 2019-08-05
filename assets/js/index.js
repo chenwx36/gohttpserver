@@ -93,7 +93,8 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             this.uploadId = this.getParamFromXml(data, 'UploadId')
             file.status = Dropzone.UPLOADING
             if (this.uploadId == null || this.uploadId === "") {
-                console.error('初始化S3文件分块上传请求成功，但未获得正确uploadId。文件 ' + fullPath)
+                var msg = '初始化S3文件分块上传请求成功，但未获得正确uploadId。文件 ' + fullPath
+                onError({status: 408}, '', msg, initUploadPart)
             } else {
                 doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY,
                     handleProgress(),
@@ -260,7 +261,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             if (jqXhr.status !== 200) {
                 switch (jqXhr.status) {
                     case 408:
-                        setTimeout(callback, timeout)
+                        callback && setTimeout(callback, timeout)
                         break
                     default:
                         hasCancel = true
