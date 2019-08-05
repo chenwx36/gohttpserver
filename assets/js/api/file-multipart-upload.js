@@ -19,14 +19,9 @@ function FileMultipartUploadApi(config) {
             url: url,
             type: 'POST',
             async: option.async === undefined ? true : option.async,
-            success: function (data) {
-                option.success && option.success(data)
-            },
-            error: function (msg) {
-                console.error(msg)
-            }
         })
     }).bind(this)
+
     this.uploadPart = (function (option, ajaxObj) {
         // return {
         //     code:200
@@ -67,11 +62,12 @@ function FileMultipartUploadApi(config) {
                 headerMap[header] = parts.join(': ');
             });
             dtd.resolve.apply(undefined, [data, headerMap, status, xhr])
-        }, function (msg) {
-            console.error(msg)
+        }, function (jqXhr, textStatus, errorThorwn) {
+            dtd.reject.apply(undefined, [jqXhr, textStatus, errorThorwn])
         })
         return dtd
     }).bind(this)
+
     this.completeMultipartUpload = (function (option) {
         //url='/${example-object}?uploadId=${uploadId}'
         //data=[
@@ -103,6 +99,7 @@ function FileMultipartUploadApi(config) {
             }
         })
     }).bind(this)
+
     this.abortMultipartUpload = (function (option) {
         //url='/${example-object}?uploadId=${uploadId}'
         // return {
@@ -116,8 +113,8 @@ function FileMultipartUploadApi(config) {
             url: url,
             type: 'DELETE',
             async: option.async === undefined ? true : option.async,
-            error: function (res) {
-                console.error(res)
+            error: function (jqXhr, textStatus, errorThorwn) {
+                console.error(textStatus, errorThorwn)
             }
         })
     }).bind(this)

@@ -54,7 +54,7 @@ var getqs = function (a) {
 }
 
 //是否开启分块上传
-window.S3_MULTIPART_UPLOAD_ENABLED = false
+window.S3_MULTIPART_UPLOAD_ENABLED = true
 
 //每个文件块的大小(bytes)
 window.S3_MULTIPART_UPLOAD_CHUNK_SIZE = 8 * (1 << 20)
@@ -79,21 +79,33 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
     if (chunks.length <= window.S3_MULTIPART_UPLOAD_THRESHOLD_SIZE) {
         return true
     }
+    var needAbortUpload = false
     var fullPath = file.fullPath == undefined ? file.name : file.fullPath
     var fileMultipartUploadApi = new FileMultipartUploadApi({
         filePath: pathJoin([location.pathname, encodeURIComponent(fullPath)]),
     })
     initUploadPart()
-    doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY, handleProgress, handleComplete, handleCancel)
 
     //初始化文件分块上传
     function initUploadPart() {
-        fileMultipartUploadApi.initUpload({
-            async: false,
-            success: (function (data) {
-                this.uploadId = this.getParamFromXml(data, 'UploadId')
-                file.status = Dropzone.UPLOADING
-            }).bind(fileMultipartUploadApi)
+        fileMultipartUploadApi.initUpload().then((function (data) {
+            this.uploadId = this.getParamFromXml(data, 'UploadId')
+            file.status = Dropzone.UPLOADING
+            if (this.uploadId == null || this.uploadId === "") {
+                console.error('初始化S3文件分块上传请求成功，但未获得正确uploadId。文件 ' + fullPath)
+            } else {
+                doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY,
+                    handleProgress(),
+                    handleComplete,
+                    handleCancel())
+            }
+        }).bind(fileMultipartUploadApi), function (jqXhr, textStatus, errorThorwn) {
+            var msg = 'S3文件分块上传初始化出错。文件 ' + fullPath
+            if (jqXhr.status !== 200) {
+                file.status = Dropzone.CANCELED
+                needAbortUpload = true
+                console.error(msg, errorThorwn)
+            }
         })
     }
 
@@ -132,7 +144,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             }).bind(fileMultipartUploadApi))
         }
         var sendChunk = function (index) {
-            if (file.status === Dropzone.CANCELED) {
+            if (file.status === Dropzone.CANCELED || needAbortUpload) {
                 for (var key in ajaxMap) {
                     ajaxMap[key].abort()
                 }
@@ -154,6 +166,13 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     sendChunk(getSendChunkIndex())
                     delete ajaxMap[index]
                     delete dtdMap[index]
+                }, function (jqXhr, textStatus, errorThorwn) {
+                    var msg = '上传文件 ' + fullPath + ' 出错。'
+                    if (jqXhr.status !== 200) {
+                        file.status = Dropzone.CANCELED
+                        needAbortUpload = true
+                        console.error(msg, errorThorwn)
+                    }
                 })
                 ajaxMap[index] = ajaxObj.obj
                 if (index === chunks.length - 1) {
@@ -174,45 +193,48 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
     }
 
     var totalSize = file.size
-    var preTime = new Date().getTime()
-    var preSendedBytes = 0;
 
-    function handleProgress(chunks, chunkIndex, e) {
-        chunks[chunkIndex].loaded = e.loaded
-        var sendedBytes = chunks.reduce(function (acc, chunk) {
-            acc += chunk.loaded === undefined ? 0 : chunk.loaded
-            return acc
-        }, 0)
-        var nowMs = new Date().getTime()
-        if (nowMs - preTime >= 500) {
-            var sendSize = sendedBytes - preSendedBytes
-            var rate = sendSize / (nowMs - preTime) * 1000
-            var displayRate = (rate / 1024 / 1024).toFixed(2) + " MB/s"
-            var $dzRate = $(".ghs-dz-rate", file.previewElement)
-            if ($dzRate.length > 0) {
-                $dzRate.text(displayRate)
+    function handleProgress() {
+        var preTime = new Date().getTime()
+        var preSendedBytes = 0;
+        return function (chunks, chunkIndex, e) {
+            chunks[chunkIndex].loaded = e.loaded
+            var sendedBytes = chunks.reduce(function (acc, chunk) {
+                acc += chunk.loaded === undefined ? 0 : chunk.loaded
+                return acc
+            }, 0)
+            var nowMs = new Date().getTime()
+            if (nowMs - preTime >= 500) {
+                var sendSize = sendedBytes - preSendedBytes
+                var rate = sendSize / (nowMs - preTime) * 1000
+                var displayRate = (rate / 1024 / 1024).toFixed(2) + " MB/s"
+                var $dzRate = $(".ghs-dz-rate", file.previewElement)
+                if ($dzRate.length > 0) {
+                    $dzRate.text(displayRate)
+                }
+                preSendedBytes = sendedBytes
+                preTime = nowMs
             }
-            preSendedBytes = sendedBytes
-            preTime = nowMs
+            fileXhr.upload.onprogress({
+                loaded: sendedBytes,
+                total: totalSize
+            })
         }
-        fileXhr.upload.onprogress({
-            loaded: sendedBytes,
-            total: totalSize
-        })
     }
 
     function handleComplete(res) {
         dropzoneObj._finished([file], res)
     }
 
-    var hasSendAbort = false
-
     function handleCancel() {
-        if (hasSendAbort) return
-        hasSendAbort = true
-        fileMultipartUploadApi.abortMultipartUpload().then(function (res, status, xhr) {
+        var hasSendAbort = false
+        return function () {
+            if (hasSendAbort) return
+            hasSendAbort = true
+            fileMultipartUploadApi.abortMultipartUpload().then(function (res, status, xhr) {
 
-        })
+            })
+        }
     }
 
     return false
