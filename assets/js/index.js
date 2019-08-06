@@ -93,8 +93,8 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             this.uploadId = this.getParamFromXml(data, 'UploadId')
             file.status = Dropzone.UPLOADING
             if (this.uploadId == null || this.uploadId === "") {
-                var msg = '初始化S3文件分块上传请求成功，但未获得正确uploadId。文件 ' + fullPath
-                onError({status: 408}, '', msg, initUploadPart)
+                var msg = '初始化文件上传请求成功，但未获得正确uploadId。文件 ' + fullPath
+                onError({status: -1}, '', msg)
             } else {
                 doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY,
                     handleProgress(),
@@ -103,10 +103,8 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                     onError)
             }
         }).bind(fileMultipartUploadApi), function (jqXhr, textStatus, errorThorwn) {
-            var msg = 'S3文件分块上传初始化出错。文件 ' + fullPath
-            onError(jqXhr, errorThorwn, msg, function () {
-                initUploadPart()
-            })
+            var msg = '文件上传初始化出错。文件 ' + fullPath
+            onError(jqXhr, errorThorwn, msg)
         })
     }
 
@@ -142,10 +140,8 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
                 }).then(function (res) {
                     onComplete(res)
                 }, function (jqXhr, textStatus, errorThorwn) {
-                    var msg = '合并文件请求 ' + fullPath + ' 出错。'
-                    onError(jqXhr, errorThorwn, msg, function () {
-                        completeUpload([], chunks)
-                    }, onCancel)
+                    var msg = '合并文件 ' + fullPath + ' 出错。'
+                    onError(jqXhr, errorThorwn, msg, null, onCancel)
                 })
             }).bind(fileMultipartUploadApi))
         }
@@ -243,11 +239,18 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             sendAbortSuccess = true
             fileMultipartUploadApi.abortMultipartUpload().fail(
                 function (jqXhr, textStatus, errorThorwn) {
-                    console.error(jqXhr.status, textStatus, errorThorwn)
-                    setTimeout(function () {
-                        sendAbortSuccess = false
-                        doAbort()
-                    }, 1000)
+                    if (jqXhr.readyState === 4) {
+                        //请求到达服务器并收到响应
+                        switch (jqXhr.status) {
+                            case 408://请求超时
+                                setTimeout(function () {
+                                    sendAbortSuccess = false
+                                    doAbort()
+                                }, 1000)
+                                break
+                        }
+                    }
+                    console.error(textStatus, errorThorwn)
                 })
         }
 
@@ -256,20 +259,32 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
 
     function handleError(timeout) {
         var hasCancel = false
+
+        function cancelUpload(onCancel, msg, err, jqXhr) {
+            hasCancel = true
+            file.status = Dropzone.ERROR
+            needAbortUpload = true
+            onCancel && onCancel()
+            dropzoneObj._errorProcessing([file], msg, jqXhr)
+            console.error(msg, err)
+        }
+
         return function (jqXhr, err, msg, callback, onCancel) {
             if (hasCancel) return
             if (jqXhr.status !== 200) {
-                switch (jqXhr.status) {
-                    case 408:
-                        callback && setTimeout(callback, timeout)
-                        break
-                    default:
-                        hasCancel = true
-                        file.status = Dropzone.ERROR
-                        needAbortUpload = true
-                        onCancel && onCancel()
-                        dropzoneObj._errorProcessing([file], msg, jqXhr)
-                        console.error(msg, err)
+                if (jqXhr.readyState < 4) {
+                    //网络中断请求未到达服务器
+                    cancelUpload(onCancel, msg, err, jqXhr)
+                } else {
+                    //请求到达服务器并收到响应
+                    switch (jqXhr.status) {
+                        case 408://请求超时
+                            if (callback) setTimeout(callback, timeout)
+                            else cancelUpload(onCancel, msg, err, jqXhr)
+                            break
+                        default:
+                            cancelUpload(onCancel, msg, err, jqXhr)
+                    }
                 }
             }
         }

@@ -94,9 +94,6 @@ function FileMultipartUploadApi(config) {
             type: 'POST',
             data: option.data,
             async: option.async === undefined ? true : option.async,
-            error: function (msg, status) {
-                console.error(msg, status)
-            }
         })
     }).bind(this)
 
