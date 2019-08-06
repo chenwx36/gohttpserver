@@ -54,13 +54,13 @@ var getqs = function (a) {
 }
 
 //是否开启分块上传
-window.S3_MULTIPART_UPLOAD_ENABLED = true
+window.S3_MULTIPART_UPLOAD_ENABLED = false
 
 //每个文件块的大小(bytes)
 window.S3_MULTIPART_UPLOAD_CHUNK_SIZE = 8 * (1 << 20)
 
 //分块上传的最大线程数
-window.S3_MULTIPART_UPLOAD_CONCURRENCY = 6
+window.S3_MULTIPART_UPLOAD_CONCURRENCY = 3
 
 //分块上传最少分块数(按照S3_MULTIPART_UPLOAD_CHUNK_SIZE大小分块后的数量)
 window.S3_MULTIPART_UPLOAD_THRESHOLD_SIZE = 3

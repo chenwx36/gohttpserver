@@ -356,7 +356,7 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		src, err := os.Open(srcPath)
 		if err != nil {
 			fmt.Printf("[s3-merge err] %s\n", err.Error())
-			http.Error(w, err.Error(), http.StatusRequestTimeout)  
+			http.Error(w, err.Error(), http.StatusConflict)   // 不能用timeout，可能会导致客户端自动重发请求，这样会重复merge导致更严重错误
 			return
 		}
 		defer func() {
