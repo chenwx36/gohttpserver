@@ -54,7 +54,7 @@ var getqs = function (a) {
 }
 
 //是否开启分块上传
-window.S3_MULTIPART_UPLOAD_ENABLED = false
+window.S3_MULTIPART_UPLOAD_ENABLED = true
 
 //每个文件块的大小(bytes)
 window.S3_MULTIPART_UPLOAD_CHUNK_SIZE = 8 * (1 << 20)
@@ -259,6 +259,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
 
     function handleError(timeout) {
         var hasCancel = false
+        var CANCEL_UPLOAD_HTTP_CODE = [400, 409]
 
         function cancelUpload(onCancel, msg, err, jqXhr) {
             hasCancel = true
@@ -266,7 +267,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             needAbortUpload = true
             onCancel && onCancel()
             dropzoneObj._errorProcessing([file], msg, jqXhr)
-            console.error(msg, err)
+            console.error(msg, err, jqXhr)
         }
 
         return function (jqXhr, err, msg, callback, onCancel) {
@@ -274,16 +275,16 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             if (jqXhr.status !== 200) {
                 if (jqXhr.readyState < 4) {
                     //网络中断请求未到达服务器
-                    cancelUpload(onCancel, msg, err, jqXhr)
+                    if (callback) setTimeout(callback, timeout)
+                    else cancelUpload(onCancel, msg, err, jqXhr)
                 } else {
                     //请求到达服务器并收到响应
-                    switch (jqXhr.status) {
-                        case 408://请求超时
-                            if (callback) setTimeout(callback, timeout)
-                            else cancelUpload(onCancel, msg, err, jqXhr)
-                            break
-                        default:
-                            cancelUpload(onCancel, msg, err, jqXhr)
+                    if (CANCEL_UPLOAD_HTTP_CODE.indexOf(jqXhr.status) === -1) {
+                        if (callback) setTimeout(callback, timeout)
+                        else cancelUpload(onCancel, msg, err, jqXhr)
+                    }
+                    else {
+                        cancelUpload(onCancel, msg, err, jqXhr)
                     }
                 }
             }
