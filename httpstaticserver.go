@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -290,7 +289,13 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	dstPath := filepath.Join(dirpath, partedFilename)
+	tempdir := filepath.Join(os.TempDir(), ".ghs-mpu-temp", uploadId)
+	if err := os.MkdirAll(tempdir, os.ModePerm); err != nil {
+		log.Println("Create directory:", err)
+		http.Error(w, "Cannot create directory. " + err.Error(), http.StatusConflict)
+		return
+	}
+	dstPath := filepath.Join(tempdir, partedFilename)
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
@@ -303,8 +308,7 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	dst.Sync()   // 强制落盘
-	dst.Close()  // 主动关闭，不要defer
+	dst.Close()  // 主动关闭，不要defer，避免之后fd还处于打开状态导致别的实例读不了
 
 	dummyEtag := fmt.Sprintf("\"dummy-etag-%06d\"", rand.Intn(999999))
 
@@ -332,7 +336,8 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 	dirpath := filepath.Join(s.Root, dirname)
 	partedFilenames := fmt.Sprintf(".%s-%s.part-*", filename, uploadId)
 
-	matches, err := filepath.Glob(filepath.Join(dirpath, partedFilenames))
+	tempdir := filepath.Join(os.TempDir(), ".ghs-mpu-temp", uploadId)
+	matches, err := filepath.Glob(filepath.Join(tempdir, partedFilenames))
 	if err != nil {
 		http.Error(w, "Invalid multipart upload parts. " + err.Error(), http.StatusBadRequest)
 		return
@@ -345,13 +350,12 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
-	defer dst.Sync()
 	defer dst.Close()
 
 	// 逐个part文件合并
 	for i := 1; i <= len(matches); i += 1 {
 		srcFilename := fmt.Sprintf(".%s-%s.part-%d", filename, uploadId, i)
-		srcPath := filepath.Join(dirpath, srcFilename)
+		srcPath := filepath.Join(tempdir, srcFilename)
 		fmt.Printf("[s3-merge] open source parted file: %s\n", srcPath)
 		src, err := os.Open(srcPath)
 		if err != nil {
@@ -414,24 +418,17 @@ func (s *HTTPStaticServer) hS3AbortMultipartUploads(w http.ResponseWriter, req *
 		return
 	}
 
-	filename := filepath.Base(path)
-	dirname := filepath.Dir(path)
-	dirpath := filepath.Join(s.Root, dirname)
-	partedFilenames := fmt.Sprintf(".%s-%s.part-*", filename, uploadId)
-
-	matches, err := filepath.Glob(filepath.Join(dirpath, partedFilenames))
-	if err != nil {
-		http.Error(w, "Invalid multipart upload parts. " + err.Error(), http.StatusBadRequest)
-		return
-	}
+	tempdir := filepath.Join(os.TempDir(), ".ghs-mpu-temp", uploadId)
 
 	// 删除parted files
+	// 但不删除本体，包括合并了一半的文件，因为可能只是上传parted过程中出错，删除本体的话会导致原本的文件被删除
 	defer func() {
-		// 需要等其他upload线程都彻底断开并释放了文件句柄，不然的话可能会删不掉文件
-		// 所以这里等4s，这个sleep不会阻塞其他线程
-		time.Sleep(4 * time.Second)
-		for _, v := range matches {
-			os.Remove(v)
+		if err := os.RemoveAll(tempdir); err != nil {
+			// 如果删不掉，可能是目录上传parted的请求占用着还没来得及释放
+			// 需要等其他upload线程都彻底断开并释放了文件句柄，不然的话可能会删不掉文件
+			// 所以这里等4s，这个sleep不会阻塞其他线程
+			time.Sleep(4 * time.Second)
+			os.RemoveAll(tempdir)
 		}
 	}()
 
@@ -455,6 +452,15 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	// 而非s3协议部分，POST/PUT是multipart-form的形式，body是要解析出来的，手动调用 ParseMultipartForm(2<<30) 给2G的缓冲区
 	query := req.URL.Query()
 
+	// handle unzip request
+	if requestMethod == "POST" {
+		op := query.Get("op")
+		if op == "unzip" {
+			s.hUnzip(w, req)
+			return
+		}
+	}
+
 	// s3 multipart uploads handlers
 	if requestMethod == "POST" {
 		if _, exists := query["uploads"]; exists {
@@ -476,7 +482,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		}
 	}
 
-	// check auth (ghs standalone auth)
+	// check auth (ghs standalone auth, unused for oauth2-proxy mode)
 	auth := s.readAccessConf(path)
 	if !auth.canUpload(req) {
 		http.Error(w, "Upload forbidden", http.StatusForbidden)
@@ -570,7 +576,6 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
-	defer dst.Sync()
 	defer dst.Close()
 	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
@@ -585,23 +590,6 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-
-	// disable it temporarily
-	// 4. unzip if neccessary
-	if false && req.FormValue("unzip") == "true" {
-		err = unzipFile(dstPath, dirpath)
-		os.Remove(dstPath)
-		message := "success"
-		if err != nil {
-			message = err.Error()
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":     err == nil,
-			"description": message,
-		})
-		return
-	}
-
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
 		"destination": path,
@@ -688,18 +676,28 @@ func (s *HTTPStaticServer) hZip(w http.ResponseWriter, r *http.Request) {
 	CompressToZip(w, filepath.Join(s.Root, path))
 }
 
-func (s *HTTPStaticServer) hUnzip(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	zipPath, path := vars["zip_path"], vars["path"]
-	ctype := mime.TypeByExtension(filepath.Ext(path))
-	if ctype != "" {
-		w.Header().Set("Content-Type", ctype)
-	}
-	err := ExtractFromZip(filepath.Join(s.Root, zipPath), path, w)
+func (s *HTTPStaticServer) hUnzip(w http.ResponseWriter, req *http.Request) {
+
+	path := mux.Vars(req)["path"]
+	filename := filepath.Base(path)  			// 文件名，会自动忽略掉结尾的"/"
+	dirname := filepath.Dir(path)    			// request path中的的directory name
+	dirpath := filepath.Join(s.Root, dirname) 	// 实际存储系统中的存储目录
+	dstPath := filepath.Join(dirpath, filename)	// 最终存在文件系统里的文件完整路径
+
+	// sig: unzipFile(src, dst)
+	err := unzipFile(dstPath, dirpath)
+	message := "success"
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		message = err.Error()
+		w.WriteHeader(http.StatusNotFound)
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     err == nil,
+		"description": message,
+		"unzip":       true,
+	})
+	return
 }
 
 func combineURL(r *http.Request, path string) *url.URL {

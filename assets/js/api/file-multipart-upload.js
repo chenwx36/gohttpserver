@@ -38,6 +38,7 @@ function FileMultipartUploadApi(config) {
             data: option.data,
             async: option.async === undefined ? true : option.async,
             cache: false,
+            timeout: 0,  // wait forever
             contentType: false,
             processData: false,
             headers: {
@@ -94,6 +95,7 @@ function FileMultipartUploadApi(config) {
             type: 'POST',
             data: option.data,
             async: option.async === undefined ? true : option.async,
+            timeout: 0,  // wait forever
         })
     }).bind(this)
 
@@ -110,6 +112,7 @@ function FileMultipartUploadApi(config) {
             url: url,
             type: 'DELETE',
             async: option.async === undefined ? true : option.async,
+            timeout: 0,  // wait forever
         })
     }).bind(this)
 

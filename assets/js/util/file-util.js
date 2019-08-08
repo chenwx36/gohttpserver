@@ -76,6 +76,7 @@ function ajaxByFormData(option) {
         data: option.data,
         async: option.async === undefined ? true : option.async,
         cache: false,
+        timeout: 0,  // wait forever
         contentType: false,
         processData: false,
         success: function (data) {
