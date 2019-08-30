@@ -89,12 +89,13 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
     //初始化文件分块上传
     function initUploadPart() {
         var onError = handleError(1000)
-        fileMultipartUploadApi.initUpload().then((function (data) {
+        fileMultipartUploadApi.initUpload().then((function (data, successText, jqXhr) {
             this.uploadId = this.getParamFromXml(data, 'UploadId')
             file.status = Dropzone.UPLOADING
             if (this.uploadId == null || this.uploadId === "") {
                 var msg = '初始化文件上传请求成功，但未获得正确uploadId。文件 ' + fullPath
-                onError({status: -1}, '', msg)
+                jqXhr.status = -1
+                onError(jqXhr, successText, msg)
             } else {
                 doUploadFilePart(window.S3_MULTIPART_UPLOAD_CONCURRENCY,
                     handleProgress(),
@@ -266,8 +267,11 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
             file.status = Dropzone.ERROR
             needAbortUpload = true
             onCancel && onCancel()
-            dropzoneObj._errorProcessing([file], msg, jqXhr)
             console.error(msg, err, jqXhr)
+            if (jqXhr && jqXhr.responseText) {
+                msg = jqXhr.responseText
+            }
+            dropzoneObj._errorProcessing([file], msg, jqXhr)
         }
 
         return function (jqXhr, err, msg, callback, onCancel) {
