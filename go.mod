@@ -18,10 +18,10 @@ require (
 	github.com/gorilla/sessions v1.1.3
 	github.com/nwaples/rardecode v1.0.0 // indirect
 	github.com/pkg/errors v0.8.0
-	github.com/shogo82148/androidbinary v0.0.0-20180627093851-01c4bfa8b3b5
+	github.com/shogo82148/androidbinary v1.0.0
 	github.com/shurcooL/httpfs v0.0.0-20171119174359-809beceb2371
 	github.com/shurcooL/vfsgen v0.0.0-20181020040650-a97a25d856ca
-	github.com/stretchr/testify v1.3.0
+	github.com/stretchr/testify v1.4.0
 	github.com/ulikunitz/xz v0.5.5 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a

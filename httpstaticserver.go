@@ -619,8 +619,8 @@ func parseApkInfo(path string) (ai *ApkInfo) {
 	ai = &ApkInfo{}
 	ai.MainActivity, _ = apkf.MainActivity()
 	ai.PackageName = apkf.PackageName()
-	ai.Version.Code = apkf.Manifest().VersionCode
-	ai.Version.Name = apkf.Manifest().VersionName
+	ai.Version.Code = int(apkf.Manifest().VersionCode.MustInt32())
+	ai.Version.Name = apkf.Manifest().VersionName.MustString()
 	return
 }
 
