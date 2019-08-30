@@ -489,7 +489,11 @@ var vm = new Vue({
         genDownloadURL: function (f) {
             var search = location.search;
             var sep = search == "" ? "?" : "&"
-            return location.origin + "/" + f.path + location.search + sep + "download=true";
+            if (f.type === "file") {
+                return location.origin + "/" + f.path + location.search + sep + "download=true";
+            } else {
+                return location.origin + "/" + f.path + location.search;
+            }
         },
         shouldHaveQrcode: function (name) {
             return ['apk', 'ipa'].indexOf(getExtention(name)) !== -1;
