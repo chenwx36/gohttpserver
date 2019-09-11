@@ -755,6 +755,11 @@ function loadFileList(pathname) {
     return retObj
 }
 
+function handleLogin() {
+    var currentPlace = encodeURIComponent(location.pathname + location.search + location.hash)
+    location.href = '/oauth2/start?rd=' + currentPlace
+}
+
 Vue.filter('fromNow', function (value) {
     return moment(value).fromNow();
 })

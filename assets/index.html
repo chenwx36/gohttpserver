@@ -51,7 +51,7 @@
             [[end]]
             [[if eq .AuthType "oauth2-proxy"]]
             <template v-if="!user.email">
-                <a href="#" class="btn btn-sm btn-default navbar-btn">
+                <a href="#" onclick="handleLogin()" class="btn btn-sm btn-default navbar-btn">
                     Guest <span class="glyphicon glyphicon-user"></span>
                 </a>
             </template>
