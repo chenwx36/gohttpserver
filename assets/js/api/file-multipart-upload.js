@@ -44,7 +44,7 @@ function FileMultipartUploadApi(config) {
             headers: {
                 "Accept": "*/*",
                 "Cache-Control": "no-cache",
-                "X-Requested-With": "XMLHttpRequest"
+                "X-Requested-With": "XMLHttpRequest",
             },
             xhr: function () {
                 var xhr = $.ajaxSettings.xhr()

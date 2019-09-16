@@ -51,7 +51,7 @@
             [[end]]
             [[if eq .AuthType "oauth2-proxy"]]
             <template v-if="!user.email">
-                <a href="#" class="btn btn-sm btn-default navbar-btn">
+                <a href="#" onclick="handleLogin()" class="btn btn-sm btn-default navbar-btn">
                     Guest <span class="glyphicon glyphicon-user"></span>
                 </a>
             </template>
@@ -134,7 +134,7 @@
         <tbody>
           <tr v-for="f in computedFiles">
             <td>
-              <a v-on:click='clickFileOrDir(f, $event)' href="#">
+              <a v-on:click='clickFileOrDir(f, $event)' href="{{genDownloadURL(f)}}">
                 <!-- ?raw=false -->
                 <i style="padding-right: 0.5em" class="fa" v-bind:class='genFileClass(f)'></i> 
                 <span style="font-family: consolas, monospace;">
@@ -271,7 +271,7 @@
     <div class="col-md-12">
       <div id="footer" class="pull-right" style="margin: 2em 1em">
         <a href="https://github.com/codeskyblue/gohttpserver">gohttpserver (ver:{{version}})</a>, written by <a href="https://github.com/codeskyblue">codeskyblue</a>.
-        Copyright 2016-2018. go1.10
+        Copyright 2016-2018. Maintained by <a href="https://io.netease.com">io.netease.com</a> Copyright 2018-2020.
       </div>
     </div>
   </div>
