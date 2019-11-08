@@ -82,7 +82,7 @@ function multipartUploadFile(file, dropzoneObj, fileXhr) {
     var needAbortUpload = false
     var fullPath = file.fullPath == undefined ? file.name : file.fullPath
     var fileMultipartUploadApi = new FileMultipartUploadApi({
-        filePath: pathJoin([location.pathname, encodeURIComponent(fullPath)]),
+        filePath: pathJoin([location.pathname, encodeURI(fullPath)]),
     })
     initUploadPart()
 
