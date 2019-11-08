@@ -278,7 +278,7 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 	if !IsExists(dirpath) {
 		if err := os.MkdirAll(dirpath, os.ModePerm); err != nil {
 			log.Println("Create directory:", err)
-			w.Header().set("Connection", "close")
+			w.Header().Set("Connection", "close")
 			http.Error(w, "Cannot create directory. " + err.Error(), http.StatusConflict)
 			return
 		}
@@ -293,7 +293,7 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 	tempdir := filepath.Join(os.TempDir(), ".ghs-mpu-temp", uploadId)
 	if err := os.MkdirAll(tempdir, os.ModePerm); err != nil {
 		log.Println("Create directory:", err)
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		http.Error(w, "Cannot create directory. " + err.Error(), http.StatusConflict)
 		return
 	}
@@ -301,14 +301,14 @@ func (s *HTTPStaticServer) hS3UploadPart(w http.ResponseWriter, req *http.Reques
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
 	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
 		log.Printf("%v %v\n", dstPath, req.Header.Get("Content-Length"))
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -351,7 +351,7 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
@@ -365,7 +365,7 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 		src, err := os.Open(srcPath)
 		if err != nil {
 			fmt.Printf("[s3-merge err] %s\n", err.Error())
-			w.Header().set("Connection", "close")
+			w.Header().Set("Connection", "close")
 			http.Error(w, err.Error(), http.StatusConflict)   // 不能用timeout，可能会导致客户端自动重发请求，这样会重复merge导致更严重错误
 			return
 		}
@@ -380,7 +380,7 @@ func (s *HTTPStaticServer) hS3CompleteMultipartUploads(w http.ResponseWriter, re
 
 		fmt.Printf("[s3-merge] start copying source parted file: %s\n", srcPath)
 		if _, err := io.Copy(dst, src); err != nil {
-			w.Header().set("Connection", "close")
+			w.Header().Set("Connection", "close")
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -510,7 +510,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	// POST为非覆盖写
 	if requestMethod == "POST" && IsExists(dstPath) {
 		w.Header().Set("Content-Type", "application/json;charset=utf-8")
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     false,
@@ -553,7 +553,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	if !IsExists(dirpath) {
 		if err := os.MkdirAll(dirpath, os.ModePerm); err != nil {
 			log.Println("Create directory:", err)
-			w.Header().set("Connection", "close")
+			w.Header().Set("Connection", "close")
 			http.Error(w, "Cannot create directory. " + err.Error(), http.StatusConflict)
 			return
 		}
@@ -561,7 +561,7 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 		// `dirpath` exists and `dirpath` is a file
 		dirFi, err := os.Stat(dirpath)
 		if err == nil && !dirFi.IsDir() {
-			w.Header().set("Connection", "close")
+			w.Header().Set("Connection", "close")
 			http.Error(w, "Cannot create directory. Target directory is a file.", http.StatusConflict)
 			return
 		}
@@ -583,14 +583,14 @@ func (s *HTTPStaticServer) hUploadOrMkdir(w http.ResponseWriter, req *http.Reque
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		log.Println("Create file:", err)
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		http.Error(w, "File create " + err.Error(), http.StatusConflict)
 		return
 	}
 	defer dst.Close()
 	if _, err := io.Copy(dst, file); err != nil {
 		log.Println("Handle upload file:", err)
-		w.Header().set("Connection", "close")
+		w.Header().Set("Connection", "close")
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
